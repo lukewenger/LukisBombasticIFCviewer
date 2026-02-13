@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bombasticifcluster-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bombasticifcdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - bombasticifccluster-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bombasticifcluster-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=postgres
+      - StoragePath=/data/storage
+    ports:
+      - "5000:80"
+    volumes:
+      - storage-data:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bombasticifccluster-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  storage-data:
+
+networks:
+  bombasticifccluster-network:
+    driver: bridge

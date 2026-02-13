@@ -1,0 +1,65 @@
+using BombasticIFC.Application.Common.Interfaces;
+using BombasticIFC.Domain.Repositories;
+using BombasticIFC.Infrastructure.Persistence;
+using BombasticIFC.Infrastructure.Repositories;
+using BombasticIFC.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Add MediatR
+builder.Services.AddMediatR(cfg => 
+    cfg.RegisterServicesFromAssembly(typeof(BombasticIFC.Application.UseCases.Models.UploadModelCommand).Assembly));
+
+// Add Database
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        b => b.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
+
+builder.Services.AddScoped<IApplicationDbContext>(provider => 
+    provider.GetRequiredService<ApplicationDbContext>());
+
+// Add Repositories
+builder.Services.AddScoped<IIfcModelRepository, IfcModelRepository>();
+builder.Services.AddScoped<IConversionJobRepository, ConversionJobRepository>();
+
+// Add Services
+var storagePath = builder.Configuration.GetValue<string>("StoragePath") ?? "/data/storage";
+builder.Services.AddSingleton<IFileStorageService>(new FileStorageService(storagePath));
+
+// Add CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseCors("AllowAll");
+
+app.UseAuthorization();
+
+app.MapControllers();
+
+// Health check endpoint
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+app.Run();
