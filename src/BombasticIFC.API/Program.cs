@@ -1,9 +1,12 @@
+using System.Text;
 using BombasticIFC.Application.Common.Interfaces;
 using BombasticIFC.Domain.Repositories;
 using BombasticIFC.Infrastructure.Persistence;
 using BombasticIFC.Infrastructure.Repositories;
 using BombasticIFC.Infrastructure.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,10 +31,39 @@ builder.Services.AddScoped<IApplicationDbContext>(provider =>
 // Add Repositories
 builder.Services.AddScoped<IIfcModelRepository, IfcModelRepository>();
 builder.Services.AddScoped<IConversionJobRepository, ConversionJobRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 // Add Services
 var storagePath = builder.Configuration.GetValue<string>("StoragePath") ?? "/data/storage";
 builder.Services.AddSingleton<IFileStorageService>(new FileStorageService(storagePath));
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IPasswordHasherService, PasswordHasherService>();
+
+// Add JWT Authentication
+var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+var secretKey = jwtSettings["Secret"] 
+    ?? throw new InvalidOperationException("JWT Secret is not configured");
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings["Issuer"] ?? "BombasticIFC",
+        ValidAudience = jwtSettings["Audience"] ?? "BombasticIFC-Client",
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
+    };
+});
+
+builder.Services.AddAuthorization();
 
 // Add CORS
 builder.Services.AddCors(options =>
@@ -55,6 +87,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowAll");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
