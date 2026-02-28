@@ -1,162 +1,263 @@
-# BombasticIFC Cluster
+# BombasticIFC Cluster – IFC Model Viewer
 
-A Kubernetes-based cluster for hosting and converting IFC (Industry Foundation Classes) models to web-compatible formats.
+Webbasierte Plattform zur Verwaltung, Konvertierung und Visualisierung von IFC-Gebäudemodellen (Building Information Modeling) in einem Kubernetes-Cluster.
 
-## Architecture
+---
 
-This project follows **Clean Architecture** principles with **Domain-Driven Design (DDD)**:
+## Modulübersicht
 
-- **Domain Layer**: Core business entities, value objects, and repository interfaces
-- **Application Layer**: Use cases, DTOs, and application-specific interfaces
-- **Infrastructure Layer**: Database context, repository implementations, and external services
-- **API Layer**: REST API controllers and presentation logic
-- **Shared Layer**: Common constants and utilities
+Dieses Repository wird in drei Modulen gleichzeitig verwendet:
 
-### Key Features
+| Modul | Inhalt |
+|-------|--------|
+| **PROG3** – Advanced Programming | Backend-API, Datenbankmodell, Clean Architecture, DDD, Kubernetes |
+| **WEB2** – Web Engineering II | Vue.js SPA, xeokit-Viewer, Pinia State Management, Responsive UI |
+| **ADP** – Agile Development Project | Projektplanung mit Scrum, Gantt-Meilensteine, GitHub + Notion |
 
-- IFC model upload and storage
-- Asynchronous conversion to web-compatible formats (XKT, glTF, GLB)
-- RESTful API with Swagger documentation
-- PostgreSQL database with Entity Framework Core
-- Kubernetes deployment with Minikube
-- Docker containerization
-- Persistent storage for models and database
+---
 
-## Technology Stack
+## Projektbeschreibung
 
-- **Backend**: .NET 8.0 (C#)
-- **Database**: PostgreSQL 16
-- **ORM**: Entity Framework Core
-- **Architecture**: Clean Architecture + DDD
-- **Patterns**: MediatR (CQRS), Repository Pattern
-- **Containerization**: Docker
-- **Orchestration**: Kubernetes (Minikube)
-- **API Documentation**: Swagger/OpenAPI
+Die Applikation ermöglicht:
 
-## Prerequisites
+- **Upload** von IFC-Dateien über ein Webfrontend
+- **Asynchrone Konvertierung** in ein browserkompatibler Format (XKT)
+- **Hosting & Visualisierung** der konvertierten Modelle mit dem xeokit-SDK
+- **Monitoring** der Konvertierungsprozesse im Cluster
+- **Benutzerverwaltung** mit Rollen und Zugriffsrechten
+
+---
+
+## Architektur
+
+Das Projekt folgt **Clean Architecture** (Onion Architecture) kombiniert mit **Domain-Driven Design (DDD)**:
+
+```
+Domain → Application → Infrastructure → API (Presentation)
+```
+
+### Schichten
+
+| Schicht | Projekt | Inhalt |
+|---------|---------|--------|
+| Domain | `BombasticIFC.Domain` | Entitäten, Value Objects, Repository-Interfaces, Enums |
+| Application | `BombasticIFC.Application` | Use Cases, DTOs, Application-Interfaces |
+| Infrastructure | `BombasticIFC.Infrastructure` | DbContext, Repository-Implementierungen, externe Services |
+| Presentation | `BombasticIFC.API` | REST-Controller, Swagger |
+| Shared | `BombasticIFC.Shared` | Gemeinsame Konstanten und Hilfsfunktionen |
+| Frontend | *(separates Repo / Ordner)* | Vue.js 3 SPA mit xeokit-Viewer |
+
+### Bounded Contexts (DDD)
+
+- **ModelImport** – Upload und Validierung von IFC-Dateien
+- **ModelProcessing** – Konvertierungsjobs, Queue, Status, Logs
+- **ModelHosting** – Hosting und Visualisierung der konvertierten Modelle
+
+---
+
+## Technologie-Stack
+
+### Backend (PROG3)
+
+| Bereich | Technologie |
+|---------|-------------|
+| Sprache / Framework | C# / .NET 8.0 |
+| Datenbank | PostgreSQL 16 |
+| ORM | Entity Framework Core |
+| Architektur | Clean Architecture + DDD |
+| Patterns | Repository Pattern, CQRS (MediatR) |
+| Containerisierung | Docker |
+| Orchestrierung | Kubernetes (Minikube) |
+| API-Dokumentation | Swagger / OpenAPI |
+| Authentifizierung | OAuth2 |
+
+### Frontend (WEB2)
+
+| Bereich | Technologie |
+|---------|-------------|
+| Framework | Vue.js 3 (Composition API) + TypeScript |
+| Build Tool | Vite |
+| Routing | Vue Router 4 |
+| State Management | Pinia |
+| CSS-Framework | Tailwind CSS |
+| 3D-Viewer | xeokit-SDK |
+| HTTP-Client | Axios |
+| Formulare | VeeValidate + Zod |
+| Icons | Heroicons / Lucide |
+
+### Projektmanagement (ADP)
+
+| Bereich | Tool / Methode |
+|---------|----------------|
+| Vorgehensmodell | Scrum |
+| Zeitplanung | Gantt mit Meilensteinen |
+| Plattform | GitHub + Notion |
+
+---
+
+## Hauptfunktionen
+
+### Backend-Features
+
+- REST-API mit DTOs für Upload, Statusabfragen und Resultatadabruf
+- Asynchrone Hintergrundverarbeitung (Worker Nodes / Message Queue)
+- CRUD-Persistenzschicht für:
+  - **Modelle** (IFC-Datei, Metadaten, Status)
+  - **Konvertierungsjobs** (Queueing, Status, Logs)
+  - **Benutzer** (Rollen, Zugriffsrechte)
+  - **Modellversionen / -varianten**
+- Containerisierte Microservices (Upload, Konvertierung, Storage)
+
+### Frontend-Features
+
+- Benutzerauthentifizierung (Login, Registrierung, Logout)
+- Modell-Dashboard mit Statusübersicht
+- IFC-Datei-Upload mit Drag-and-Drop und Fortschrittsanzeige
+- Echtzeit-Statusverfolgung der Konvertierung (Polling / WebSocket)
+- Interaktiver 3D-Viewer (xeokit) mit Navigation und Objektselektion
+- Responsive Design (Mobile, Tablet, Desktop)
+- Dark Mode
+
+### Geplante Routen (Frontend)
+
+| Route | View | Beschreibung |
+|-------|------|-------------|
+| `/` | Home | Startseite |
+| `/login` | Login | Login-Formular |
+| `/register` | Register | Registrierung |
+| `/dashboard` | Dashboard | Modellübersicht (geschützt) |
+| `/upload` | Upload | Modell-Upload (geschützt) |
+| `/viewer/:id` | Viewer | 3D-Viewer (geschützt) |
+| `/profile` | Profil | Benutzerprofil (geschützt) |
+| `/:pathMatch(.*)` | 404 | Fehlerseite |
+
+---
+
+## Voraussetzungen
 
 - [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Node.js 20+](https://nodejs.org/)
 - [Docker](https://www.docker.com/get-started)
 - [Minikube](https://minikube.sigs.k8s.io/docs/start/)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 
-## Quick Start
+---
 
-### Local Development with Docker Compose
+## Schnellstart
+
+### Lokale Entwicklung mit Docker Compose
 
 ```powershell
-# Start the application
+# Anwendung starten
 docker-compose up -d
 
-# Access the API
+# API erreichbar unter
 # http://localhost:5000/swagger
 ```
 
-### Kubernetes Deployment with Minikube
+### Kubernetes-Deployment mit Minikube
 
 ```powershell
-# Run the deployment script
+# Deployment-Skript ausführen
 .\deploy.ps1
-
-# Or on Linux/Mac
-chmod +x deploy.sh
-./deploy.sh
 ```
 
-The script will:
-1. Start Minikube if not running
-2. Enable required addons (Ingress, Storage)
-3. Build the Docker image
-4. Create storage directories
-5. Deploy all Kubernetes resources
-6. Display access information
+Das Skript führt folgende Schritte aus:
+1. Minikube starten (falls nicht aktiv)
+2. Benötigte Addons aktivieren (Ingress, Storage)
+3. Docker-Image bauen
+4. Storage-Verzeichnisse erstellen
+5. Alle Kubernetes-Ressourcen deployen
+6. Zugangsinformationen ausgeben
 
-## Project Structure
+---
+
+## Projektstruktur
 
 ```
 BombasticIFCcluster/
 ├── src/
-│   ├── BombasticIFC.Domain/          # Core business logic
-│   │   ├── Entities/                 # Domain entities
-│   │   ├── ValueObjects/             # Value objects
-│   │   ├── Enums/                    # Enumerations
-│   │   └── Repositories/             # Repository interfaces
-│   ├── BombasticIFC.Application/     # Application layer
-│   │   ├── UseCases/                 # Business use cases
-│   │   ├── DTOs/                     # Data transfer objects
-│   │   └── Common/Interfaces/        # Application interfaces
-│   ├── BombasticIFC.Infrastructure/  # Infrastructure layer
-│   │   ├── Persistence/              # Database context
-│   │   ├── Repositories/             # Repository implementations
-│   │   └── Services/                 # External services
-│   ├── BombasticIFC.API/             # Presentation layer
-│   │   └── Controllers/              # API controllers
-│   └── BombasticIFC.Shared/          # Shared utilities
-├── kubernetes/                        # Kubernetes manifests
+│   ├── BombasticIFC.Domain/          # Domänenlogik (Entitäten, Repositories, Enums)
+│   ├── BombasticIFC.Application/     # Use Cases, DTOs, Interfaces
+│   ├── BombasticIFC.Infrastructure/  # DbContext, Repository-Implementierungen, Services
+│   ├── BombasticIFC.API/             # REST-Controller, Swagger
+│   └── BombasticIFC.Shared/          # Gemeinsame Hilfsmittel
+├── kubernetes/                        # Kubernetes-Manifeste
 │   ├── namespace.yaml
+│   ├── configmap.yaml
 │   ├── secrets.yaml
+│   ├── persistent-volumes.yaml
 │   ├── postgres-deployment.yaml
 │   ├── api-deployment.yaml
 │   └── ingress.yaml
-├── Dockerfile                         # Docker image definition
-├── docker-compose.yml                 # Docker Compose configuration
-├── deploy.sh                          # Linux/Mac deployment script
-└── deploy.ps1                         # Windows deployment script
+├── Dockerfile
+├── docker-compose.yml
+├── deploy.ps1                         # Windows-Deployment-Skript
+└── README.md
 ```
 
-## API Endpoints
+---
 
-### Models
+## API-Endpunkte
 
-- `POST /api/models/upload` - Upload a new IFC model
-- `GET /api/models/{id}` - Get model by ID
+### Modelle
 
-### Conversions
+| Methode | Endpunkt | Beschreibung |
+|---------|----------|-------------|
+| `POST` | `/api/models/upload` | IFC-Modell hochladen |
+| `GET` | `/api/models/{id}` | Modell abrufen |
 
-- `POST /api/conversions` - Create a conversion job
-- `GET /api/conversions/{id}` - Get conversion job status
+### Konvertierungen
 
-### Health
+| Methode | Endpunkt | Beschreibung |
+|---------|----------|-------------|
+| `POST` | `/api/conversions` | Konvertierungsjob erstellen |
+| `GET` | `/api/conversions/{id}` | Status eines Jobs abrufen |
 
-- `GET /health` - Health check endpoint
+### System
 
-## Accessing Services
+| Methode | Endpunkt | Beschreibung |
+|---------|----------|-------------|
+| `GET` | `/health` | Health Check |
 
-After deployment, services are accessible at:
+---
 
-- **API (NodePort)**: `http://<minikube-ip>:30080`
-- **Swagger UI**: `http://<minikube-ip>:30080/swagger`
-- **PostgreSQL**: `<minikube-ip>:30432`
+## Erreichbarkeit nach Deployment
 
-Get Minikube IP:
+| Service | URL |
+|---------|-----|
+| API (NodePort) | `http://<minikube-ip>:30080` |
+| Swagger UI | `http://<minikube-ip>:30080/swagger` |
+| PostgreSQL | `<minikube-ip>:30432` |
+
+Minikube-IP ermitteln:
 ```powershell
 minikube ip
 ```
 
-### Using Ingress
-
-Add to your hosts file:
+Für Ingress-Zugriff in der `hosts`-Datei eintragen:
 ```
 <minikube-ip> bombasticifccluster.local
 ```
+Dann erreichbar unter: `http://bombasticifccluster.local`
 
-Then access: `http://bombasticifccluster.local`
+---
 
-## Development
+## Entwicklung
 
-### Build the Solution
+### Solution bauen
 
 ```powershell
 dotnet build BombasticIFCcluster.sln
 ```
 
-### Run Tests
+### Tests ausführen
 
 ```powershell
 dotnet test
 ```
 
-### Database Migrations
+### Datenbankmigrationen
 
 ```powershell
 cd src/BombasticIFC.Infrastructure
@@ -164,78 +265,72 @@ dotnet ef migrations add InitialCreate --startup-project ../BombasticIFC.API
 dotnet ef database update --startup-project ../BombasticIFC.API
 ```
 
-## Clean Code Principles Applied
+---
 
-1. **Single Responsibility Principle**: Each class has one reason to change
-2. **Dependency Inversion**: High-level modules don't depend on low-level modules
-3. **Separation of Concerns**: Clear layer boundaries
-4. **Explicit Dependencies**: Constructor injection
-5. **Immutability**: Private setters, factory methods
-6. **Meaningful Names**: Clear, descriptive names for classes and methods
-7. **Domain-Driven Design**: Rich domain models with business logic
+## Testkonzept
 
-## Monitoring
+| Testart | Beschreibung |
+|---------|-------------|
+| **Unit Tests** | Domänenlogik, Services, Hilfsfunktionen |
+| **Integrationstests** | API-Endpunkte, Datenbankzugriffe, Konvertierungsprozesse |
+| **End-to-End Tests** | Upload → Konvertierung → Anzeige im Browser |
+| **Security Tests** | Authentifizierung, Rechteverwaltung, sichere Uploads |
 
-### View Cluster Status
+---
+
+## Clean Code & SOLID
+
+1. **Single Responsibility** – Jede Klasse hat genau eine Verantwortung
+2. **Dependency Inversion** – Abhängigkeiten zeigen stets auf Abstraktionen
+3. **Separation of Concerns** – Klare Schichtengrenzen
+4. **Explicit Dependencies** – Constructor Injection durchgehend
+5. **Immutability** – Private Setter, Factory-Methoden
+6. **Domain-Driven Design** – Reichhaltige Domänenmodelle mit Geschäftslogik
+
+---
+
+## Cluster-Monitoring
 
 ```powershell
+# Alle Ressourcen im Namespace anzeigen
 kubectl get all -n bombasticifccluster
-```
 
-### View Logs
-
-```powershell
-# API logs
+# API-Logs
 kubectl logs -f deployment/api-deployment -n bombasticifccluster
 
-# PostgreSQL logs
+# PostgreSQL-Logs
 kubectl logs -f deployment/postgres-deployment -n bombasticifccluster
-```
 
-### Minikube Dashboard
-
-```powershell
+# Minikube-Dashboard öffnen
 minikube dashboard
 ```
 
-## Cleanup
+---
 
-### Stop Minikube
+## Cluster zurücksetzen
 
 ```powershell
+# Minikube stoppen
 minikube stop
-```
 
-### Delete Cluster
-
-```powershell
+# Cluster löschen
 minikube delete
-```
 
-### Stop Docker Compose
-
-```powershell
+# Docker Compose herunterfahren
 docker-compose down -v
 ```
 
-## Contributing
+---
 
-This project follows Clean Code and SOLID principles. When contributing:
+## Autor
 
-1. Follow the existing architecture patterns
-2. Write unit tests for new features
-3. Use meaningful commit messages
-4. Document public APIs
+**Lukas Wenger**
+Kontakt: lwe046484@students.gibb.ch
 
-## License
+## Projektkontext
 
-[Specify your license here]
-
-## Author
-
-Lukas Wenger
-
-## Project Context
-
-Part of PROG3 - Advanced Programming Course
-Supervisor: Reto Glarner
+| Modul | Kurs | Betreuer |
+|-------|------|----------|
+| PROG3 – Advanced Programming | GIBB Sem. 5 | Reto Glarner |
+| WEB2 – Web Engineering II | GIBB Sem. 5 | Nicolas Dumermuth |
+| ADP – Agile Development Project | GIBB Sem. 5 | Reto Glarner |
