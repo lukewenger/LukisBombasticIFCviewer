@@ -6,29 +6,29 @@
 
 ## Phase A — Backend gaps (unblocks frontend)
 
-- [ ] **A1** Add `GetModelsQuery` + handler → `src/BombasticIFC.Application/UseCases/Models/GetModelsQuery.cs`
+- [x] **A1** Add `GetModelsQuery` + handler → `src/BombasticIFC.Application/UseCases/Models/GetModelsQuery.cs`
   - Returns `List<IfcModelDto>` via `IIfcModelRepository`
   - Add `GetAllAsync()` to `IIfcModelRepository` + `IfcModelRepository` if missing
-- [ ] **A2** Wire `GET /api/models` in `ModelsController.cs` → `[HttpGet]` calling `GetModelsQuery`
-- [ ] **A3** Add `GetConversionJobQuery` + handler → `src/BombasticIFC.Application/UseCases/Conversion/GetConversionJobQuery.cs`
+- [x] **A2** Wire `GET /api/models` in `ModelsController.cs` → `[HttpGet]` calling `GetModelsQuery`
+- [x] **A3** Add `GetConversionJobQuery` + handler → `src/BombasticIFC.Application/UseCases/Conversion/GetConversionJobQuery.cs`
   - Fix the 404 stub in `ConversionsController.GetConversionJob()`
-- [ ] **A4** Add `GET /api/models/{id}/output` → streams `.xkt` file from `OutputFilePath` on disk
+- [x] **A4** Add `GET /api/models/{id}/output` → streams `.xkt` file from `OutputFilePath` on disk
   - Returns `application/octet-stream` with Content-Disposition
 
 ---
 
 ## Phase B — Frontend types & API layer (parallel with A)
 
-- [ ] **B1** Create `src/types/models.ts`
+- [x] **B1** Create `src/types/models.ts`
   - Interfaces: `IfcModelDto`, `ModelMetadataDto`, `ConversionJobDto`
-  - Enums: `ModelStatus`, `ConversionStatus`, `ConversionFormat`
-- [ ] **B2** Update `src/types/index.ts` — re-export new types
-- [ ] **B3** Create `src/api/models.ts`
+  - Const objects + type aliases: `ModelStatus`, `ConversionStatus`, `ConversionFormat` (erasableSyntaxOnly)
+- [x] **B2** Update `src/types/index.ts` — re-export new types
+- [x] **B3** Create `src/api/models.ts`
   - `getModels()` → `GET /api/models`
   - `getModel(id)` → `GET /api/models/:id`
   - `uploadModel(file)` → `POST /api/models/upload` (multipart/form-data)
   - `getModelOutputUrl(id)` → returns `/api/models/${id}/output`
-- [ ] **B4** Create `src/api/conversions.ts`
+- [x] **B4** Create `src/api/conversions.ts`
   - `createConversionJob(modelId, format)` → `POST /api/conversions`
   - `getConversionJob(id)` → `GET /api/conversions/:id`
 

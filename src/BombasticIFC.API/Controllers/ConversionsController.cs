@@ -50,8 +50,13 @@ public class ConversionsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ConversionJobDto>> GetConversionJob(Guid id)
     {
-        // TODO: Implement GetConversionJobQuery
-        return NotFound();
+        var query = new GetConversionJobQuery(id);
+        var result = await _mediator.Send(query);
+
+        if (result == null)
+            return NotFound();
+
+        return Ok(result);
     }
 }
 
