@@ -60,19 +60,22 @@
 
 ## Phase D — Kubernetes deployment (depends on C)
 
-- [ ] **D1** Create `frontend/Dockerfile`
+- [x] **D1** Create `frontend/Dockerfile`
   - Stage 1: `node:20-alpine` — `npm ci`, `vite build`
   - Stage 2: `nginx:alpine` — copy `dist/` + `nginx.conf`
-- [ ] **D2** Create `frontend/nginx.conf`
+- [x] **D2** Create `frontend/nginx.conf`
   - `try_files $uri /index.html` (SPA routing)
-  - `location /api { proxy_pass http://api-service.bombasticifccluster.svc.cluster.local; }`
-  - gzip enabled, serves on port 80
-- [ ] **D3** Create `kubernetes/frontend-deployment.yaml`
+  - `location /api/ { proxy_pass http://api-service.bombasticifccluster.svc.cluster.local/api/; }`
+  - gzip enabled, static asset caching, serves on port 80
+- [x] **D3** Create `kubernetes/frontend-deployment.yaml`
   - Deployment: 1 replica, `bombasticifccluster-frontend:latest`, `imagePullPolicy: Never`
   - ClusterIP Service `frontend-service` → port 80 → containerPort 80
-- [ ] **D4** Update `kubernetes/ingress.yaml`
+  - Liveness + readiness probes
+- [x] **D4** Update `kubernetes/ingress.yaml`
   - `path: /` → backend `frontend-service` (was `api-service`)
   - `path: /api` → backend `api-service` (unchanged)
+  - `path: /health` → backend `api-service`
+  - Removed `rewrite-target` annotation (frontend handles SPA routing)
 
 ---
 
