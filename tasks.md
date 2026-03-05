@@ -41,9 +41,10 @@
 
 ## Phase 4 — Database Migrations
 
-- [ ] Confirm whether `Program.cs` auto-applies EF Core migrations on startup
-- [ ] If not, run manually via `kubectl exec` or `dotnet ef database update`
-- [ ] Consider adding an init container for automatic migrations
+- [x] Confirmed `Program.cs` does NOT auto-apply migrations → added `db.Database.Migrate()` on startup
+- [x] Fixed EF warning: added matching query filters for `ModelVersion` and `ConversionJob` in `ApplicationDbContext`
+- [x] Created `InitialCreate` migration via `dotnet ef migrations add`
+- [x] Rebuilt image (`--no-cache`) and redeployed — migration applied successfully on first pod startup
 
 ## Phase 5 — Access & Verification
 
