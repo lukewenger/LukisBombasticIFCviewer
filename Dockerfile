@@ -29,9 +29,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
 # Create storage directory
-RUN mkdir -p /data/storage
+RUN mkdir -p /data/storage /app/seed-data
 
 COPY --from=publish /app/publish .
+COPY src/BombasticIFC.API/data/storage/samples/Duplex.xkt /app/seed-data/Duplex.xkt
 
 EXPOSE 80
 EXPOSE 443

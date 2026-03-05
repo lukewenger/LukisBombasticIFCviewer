@@ -6,7 +6,7 @@ import { modelsApi } from '../api/models'
 import type { IfcModelDto } from '../types'
 import { ModelStatus } from '../types/models'
 
-const DUPLEX_DEMO_URL = 'https://xeokit.github.io/xeokit-sdk/assets/models/xkt/v8/Duplex/Duplex.xkt'
+const DUPLEX_DEMO_URL = '/samples/Duplex.xkt'
 
 const route = useRoute()
 const router = useRouter()
