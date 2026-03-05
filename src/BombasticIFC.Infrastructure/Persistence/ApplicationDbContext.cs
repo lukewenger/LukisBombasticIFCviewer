@@ -29,6 +29,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         // Global query filters for soft delete
         modelBuilder.Entity<IfcModel>().HasQueryFilter(m => !m.IsDeleted);
         modelBuilder.Entity<User>().HasQueryFilter(u => !u.IsDeleted);
+        // ModelVersion and ConversionJob are filtered via their parent IfcModel
+        modelBuilder.Entity<ModelVersion>().HasQueryFilter(mv => !mv.Model!.IsDeleted);
+        modelBuilder.Entity<ConversionJob>().HasQueryFilter(j => !j.Model!.IsDeleted);
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
