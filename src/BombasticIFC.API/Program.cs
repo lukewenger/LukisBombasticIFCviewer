@@ -106,4 +106,27 @@ app.MapControllers();
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
+// Apply migrations and seed database
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        db.Database.Migrate();
+        logger.LogInformation("Database migrations applied successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Migration failed, falling back to EnsureCreated");
+        db.Database.EnsureCreated();
+    }
+
+    await DatabaseSeeder.SeedAsync(
+        db,
+        builder.Configuration.GetValue<string>("StoragePath") ?? "/data/storage",
+        logger);
+}
+
 app.Run();
