@@ -29,15 +29,15 @@
 
 ## Phase 3 — Apply Kubernetes Manifests (in order)
 
-- [ ] `kubectl apply -f kubernetes/namespace.yaml`
-- [ ] `kubectl apply -f kubernetes/secrets.yaml`
-- [ ] `kubectl apply -f kubernetes/configmap.yaml`
-- [ ] `kubectl apply -f kubernetes/persistent-volumes.yaml`
-- [ ] `kubectl apply -f kubernetes/postgres-deployment.yaml`
-- [ ] Wait for PostgreSQL: `kubectl wait --for=condition=ready pod -l app=postgres -n bombasticifccluster --timeout=300s`
-- [ ] `kubectl apply -f kubernetes/api-deployment.yaml`
-- [ ] Wait for API: `kubectl wait --for=condition=ready pod -l app=bombasticifccluster-api -n bombasticifccluster --timeout=300s`
-- [ ] `kubectl apply -f kubernetes/ingress.yaml`
+- [x] `kubectl apply -f kubernetes/namespace.yaml`
+- [x] `kubectl apply -f kubernetes/secrets.yaml`
+- [x] `kubectl apply -f kubernetes/configmap.yaml`
+- [x] `kubectl apply -f kubernetes/persistent-volumes.yaml`
+- [x] `kubectl apply -f kubernetes/postgres-deployment.yaml`
+- [x] Wait for PostgreSQL: ready ✅
+- [x] `kubectl apply -f kubernetes/api-deployment.yaml` (port fixed: 80→8080)
+- [x] Wait for API: both pods ready ✅
+- [x] `kubectl apply -f kubernetes/ingress.yaml`
 
 ## Phase 4 — Database Migrations
 
