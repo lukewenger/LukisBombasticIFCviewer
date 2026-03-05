@@ -36,25 +36,24 @@
 
 ## Phase C — Frontend views (depends on B)
 
-- [ ] **C1** Implement `UploadView.vue`
+- [x] **C1** Implement `UploadView.vue`
   - Drag-and-drop + click-to-browse for `.ifc` files
-  - Client-side validation (extension, file size)
+  - Client-side validation (extension, 500 MB limit)
   - `POST /api/models/upload` with axios `onUploadProgress` progress bar
   - On success: `POST /api/conversions` with `{ ModelId, TargetFormat: 0 (XKT) }`
-  - Redirect to Dashboard
-- [ ] **C2** Implement `DashboardView.vue`
-  - Fetch and display model list (card grid or table)
-  - Columns: filename, size, status badge (Pending/Processing/Ready/Failed), uploaded date
-  - Auto-poll every 5s while any model is Pending/Processing
-  - "View" button → `/viewer/:id` (enabled only when status is Ready)
-- [ ] **C3** Install `@xeokit/xeokit-sdk` → add to `package.json`
-- [ ] **C4** Implement `ViewerView.vue`
-  - Route `/viewer/:id`
-  - Fetch model metadata on mount
-  - Create xeokit `Viewer` on `<canvas ref="canvas">` (fills container)
-  - `XKTLoaderPlugin` loads from `/api/models/:id/output` when conversion Ready
-  - Fallback: load Duplex demo via runtime URL `https://xeokit.github.io/xeokit-sdk/assets/models/xkt/v8/Duplex/Duplex.xkt`
-  - Loading spinner while fetching; error message on failure
+  - Success toast + redirect to Dashboard
+- [x] **C2** Implement `DashboardView.vue`
+  - Model table (filename, size, status badge, uploaded date)
+  - Auto-poll every 5s while any model is Uploaded/Processing
+  - "Anzeigen" button → `/viewer/:id` (enabled only when status is Ready)
+  - Empty state + error state + refresh button
+- [x] **C3** Install `@xeokit/xeokit-sdk` ^2.6.0 → added to `package.json`
+- [x] **C4** Implement `ViewerView.vue`
+  - Route `/viewer/:id`; full-height canvas with toolbar
+  - Dynamic import of xeokit-sdk (avoids SSR issues)
+  - `XKTLoaderPlugin` loads from `/api/models/:id/output` when Ready
+  - Fallback: Duplex demo `https://xeokit.github.io/xeokit-sdk/assets/models/xkt/v8/Duplex/Duplex.xkt`
+  - Error fallback: if real model fails to load, auto-loads demo
   - Destroy `Viewer` on `onUnmounted`
 
 ---
