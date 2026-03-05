@@ -1,5 +1,7 @@
+using BombasticIFC.Application.Common.Interfaces;
 using BombasticIFC.Application.DTOs;
 using BombasticIFC.Application.UseCases.Models;
+using BombasticIFC.Domain.Repositories;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,11 +16,31 @@ public class ModelsController : ControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<ModelsController> _logger;
+    private readonly IConversionJobRepository _conversionJobRepository;
+    private readonly IFileStorageService _fileStorageService;
 
-    public ModelsController(IMediator mediator, ILogger<ModelsController> logger)
+    public ModelsController(
+        IMediator mediator,
+        ILogger<ModelsController> logger,
+        IConversionJobRepository conversionJobRepository,
+        IFileStorageService fileStorageService)
     {
         _mediator = mediator;
         _logger = logger;
+        _conversionJobRepository = conversionJobRepository;
+        _fileStorageService = fileStorageService;
+    }
+
+    /// <summary>
+    /// Get all models
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(List<IfcModelDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<IfcModelDto>>> GetModels()
+    {
+        var query = new GetModelsQuery();
+        var result = await _mediator.Send(query);
+        return Ok(result);
     }
 
     /// <summary>
@@ -59,5 +81,30 @@ public class ModelsController : ControllerBase
             return NotFound();
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Get the converted output file for a model
+    /// </summary>
+    [HttpGet("{id}/output")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetModelOutput(Guid id)
+    {
+        var jobs = await _conversionJobRepository.GetByModelIdAsync(id);
+        var completedJob = jobs
+            .Where(j => j.Status == Domain.Enums.ConversionStatus.Completed && j.OutputFilePath != null)
+            .OrderByDescending(j => j.CompletedAt)
+            .FirstOrDefault();
+
+        if (completedJob?.OutputFilePath == null)
+            return NotFound(new { message = "No converted output available for this model" });
+
+        if (!await _fileStorageService.FileExistsAsync(completedJob.OutputFilePath))
+            return NotFound(new { message = "Output file not found on disk" });
+
+        var stream = await _fileStorageService.GetFileAsync(completedJob.OutputFilePath);
+        var fileName = Path.GetFileName(completedJob.OutputFilePath);
+        return File(stream, "application/octet-stream", fileName);
     }
 }
