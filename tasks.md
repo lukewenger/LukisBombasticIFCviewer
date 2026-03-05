@@ -21,11 +21,11 @@
 
 ## Phase 2 — Start Minikube & Build Image
 
-- [ ] Start Minikube: `minikube start --cpus=4 --memory=8192 --disk-size=50g --driver=docker`
-- [ ] Enable addons: `ingress`, `storage-provisioner`, `default-storageclass`, `metrics-server`
-- [ ] Point Docker CLI at Minikube's daemon: `eval $(minikube docker-env)`
-- [ ] Build API image inside Minikube context: `docker build -t bombasticifccluster-api:latest .`
-- [ ] Create host-path directories: `minikube ssh "sudo mkdir -p /mnt/data/postgres /mnt/data/storage && sudo chmod -R 777 /mnt/data"`
+- [x] Start Minikube: `minikube start --cpus=2 --memory=4096 --disk-size=50g --driver=docker` (adjusted for 6.8GB system)
+- [x] Enable addons: `ingress`, `storage-provisioner`, `default-storageclass`, `metrics-server`
+- [x] Point Docker CLI at Minikube's daemon: `eval $(minikube docker-env)`
+- [x] Build API image inside Minikube context: `docker build -t bombasticifccluster-api:latest .` (251MB)
+- [x] Create host-path directories: `/mnt/data/postgres` and `/mnt/data/storage`
 
 ## Phase 3 — Apply Kubernetes Manifests (in order)
 
