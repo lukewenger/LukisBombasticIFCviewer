@@ -18,8 +18,8 @@ Vollständige technische Dokumentation des Kubernetes-Clusters für die Bombasti
    - [Ingress](#ingress)
 4. [Docker-Images](#docker-images)
 5. [Deployment-Ablauf](#deployment-ablauf)
-   - [Windows (Minikube)](#option-a-windows--minikube)
-   - [Ubuntu Server (K3s)](#option-b-ubuntu-server--k3s)
+   - [Ubuntu Server (Minikube)](#option-a-ubuntu-server--minikube)
+   - [Ubuntu Server (K3s — Produktion)](#option-b-ubuntu-server--k3s--produktion)
 6. [Netzwerk & Zugriff](#netzwerk--zugriff)
 7. [Monitoring & Debugging](#monitoring--debugging)
 8. [Skalierung](#skalierung)
@@ -104,16 +104,18 @@ Vollständige technische Dokumentation des Kubernetes-Clusters für die Bombasti
 
 ## Voraussetzungen
 
-### Für Windows (Lokale Entwicklung)
+### Für Ubuntu Server (Minikube — aktuelles Setup)
 
-| Tool | Version | Download |
-|------|---------|----------|
-| Docker Desktop | 4.x+ | [docker.com](https://www.docker.com/get-started) |
-| Minikube | 1.32+ | [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/docs/start/) |
-| kubectl | 1.28+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
-| .NET SDK | 8.0 | [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/8.0) |
+| Tool | Version | Installationsbefehl |
+|------|---------|---------------------|
+| Docker | 24.x+ | `sudo apt install docker-ce` |
+| Minikube | 1.32+ | Automatisch via `setupKubernetes.sh` |
+| kubectl | 1.28+ | Automatisch via `setupKubernetes.sh` |
+| .NET SDK | 8.0 | Automatisch via `setupKubernetes.sh` |
 
-### Für Ubuntu Server (Produktion)
+> `setupKubernetes.sh` übernimmt die Installation aller Abhängigkeiten (Docker, .NET SDK, kubectl, Minikube), startet Minikube mit `--driver=docker` und baut das API-Image.
+
+### Für Ubuntu Server (K3s — Produktionspfad)
 
 | Tool | Version | Installationsbefehl |
 |------|---------|---------------------|
@@ -296,9 +298,11 @@ NGINX-Ingress zur Weiterleitung von externem HTTP-Traffic:
 | Eigenschaft | Wert |
 |-------------|------|
 | Ingress Class | `nginx` |
-| Host | `bombasticifccluster.local` |
+| Host | — (kein Host-Filter, Catch-All) |
 | Max Body Size | 500 MB (für grosse IFC-Dateien) |
 | SSL Redirect | Deaktiviert |
+
+> **Hinweis:** In der aktuellen Konfiguration enthält `ingress.yaml` keine `host:`-Einschränkung. Der Ingress akzeptiert Anfragen auf jede Hostname/IP, d. h. der Dienst ist unter `http://$(minikube ip)/` direkt erreichbar, ohne `/etc/hosts`-Eintrag.
 
 **Routing-Regeln:**
 
@@ -366,42 +370,73 @@ docker build -t bombasticifccluster-frontend:latest ./frontend
 
 ## Deployment-Ablauf
 
-### Option A: Windows + Minikube
+### Option A: Ubuntu Server + Minikube
 
-Automatisiert über `deploy.ps1`:
+Automatisiert über `setupKubernetes.sh` (Phasen 0–2):
 
-```powershell
-.\deploy.ps1
+```bash
+chmod +x setupKubernetes.sh && ./setupKubernetes.sh
 ```
 
-**Ablauf des Scripts:**
+**Ablauf des Scripts (Phasen 0–2):**
 
 ```
-1. Prüfe Minikube & kubectl Installation
-2. Starte Minikube (--cpus=4 --memory=8192 --disk-size=50g)
-3. Aktiviere Addons:
+1. Abhängigkeiten installieren / prüfen:
+   ├── Docker (inkl. Gruppe docker)
+   ├── .NET SDK 8.0
+   ├── dotnet-ef CLI
+   ├── kubectl
+   └── Minikube
+2. EF Core Migration erstellen (falls noch nicht vorhanden)
+3. Starte Minikube (--cpus=2 --memory=4096 --disk-size=50g --driver=docker)
+4. Aktiviere Addons:
    ├── ingress
    ├── storage-provisioner
    ├── default-storageclass
    └── metrics-server
-4. Konfiguriere Docker-Umgebung → Minikube Docker Daemon
-5. Baue Docker-Image (bombasticifccluster-api:latest)
-6. Erstelle Storage-Verzeichnisse auf Minikube-Node:
+5. Konfiguriere Docker-Umgebung → Minikube Docker Daemon
+   (eval $(minikube docker-env))
+6. Baue API-Docker-Image (bombasticifccluster-api:latest)
+7. Erstelle Storage-Verzeichnisse auf Minikube-Node:
    ├── /mnt/data/postgres
    └── /mnt/data/storage
-7. Kubernetes-Manifeste anwenden:
-   ├── namespace.yaml
-   ├── secrets.yaml
-   ├── configmap.yaml
-   ├── persistent-volumes.yaml
-   ├── postgres-deployment.yaml  → Warten auf Ready
-   ├── api-deployment.yaml       → Warten auf Ready
-   ├── frontend-deployment.yaml  → Warten auf Ready
-   └── ingress.yaml
-8. Ausgabe der Zugangs-URLs
 ```
 
-### Option B: Ubuntu Server + K3s
+> **Hinweis:** Das Script erstellt **nicht** das Frontend-Image und wendet **keine** Kubernetes-Manifeste an. Dies sind separate Schritte (Phase 3):
+
+**Phase 3 — Images bauen & Manifeste anwenden:**
+
+```bash
+# Frontend-Image bauen (Docker-Umgebung auf Minikube zeigen lassen)
+eval $(minikube docker-env)
+docker build -t bombasticifccluster-frontend:latest ./frontend
+
+# Manifeste in der richtigen Reihenfolge anwenden
+kubectl apply -f kubernetes/namespace.yaml
+kubectl apply -f kubernetes/secrets.yaml
+kubectl apply -f kubernetes/configmap.yaml
+kubectl apply -f kubernetes/persistent-volumes.yaml
+kubectl apply -f kubernetes/postgres-deployment.yaml
+kubectl wait --for=condition=ready pod -l app=postgres -n bombasticifccluster --timeout=300s
+kubectl apply -f kubernetes/api-deployment.yaml
+kubectl wait --for=condition=ready pod -l app=bombasticifccluster-api -n bombasticifccluster --timeout=300s
+kubectl apply -f kubernetes/frontend-deployment.yaml
+kubectl wait --for=condition=ready pod -l app=bombasticifccluster-frontend -n bombasticifccluster --timeout=300s
+kubectl apply -f kubernetes/ingress.yaml
+```
+
+**Zugriff nach dem Deployment:**
+
+```bash
+# Minikube-IP ermitteln
+minikube ip
+
+# Dienste direkt via NodePort
+http://$(minikube ip):30080        # API
+http://$(minikube ip)/             # Frontend (via Ingress)
+```
+
+### Option B: Ubuntu Server + K3s — Produktion
 
 #### 1. K3s installieren
 
@@ -463,31 +498,28 @@ kubectl apply -f kubernetes/ingress.yaml
 
 | Zugriff | URL / Adresse | Voraussetzung |
 |---------|---------------|---------------|
-| Frontend via Ingress | `http://bombasticifccluster.local` | hosts-Eintrag nötig |
-| API via Ingress | `http://bombasticifccluster.local/api` | hosts-Eintrag nötig |
-| Health Check via Ingress | `http://bombasticifccluster.local/health` | hosts-Eintrag nötig |
-| API via NodePort | `http://<NODE-IP>:30080` | Direkt erreichbar |
-| Swagger UI | `http://<NODE-IP>:30080/swagger` | Direkt erreichbar |
-| Health Check (NodePort) | `http://<NODE-IP>:30080/health` | Direkt erreichbar |
-| PostgreSQL extern | `<NODE-IP>:30432` | Direkt erreichbar |
+| Frontend via Ingress | `http://$(minikube ip)/` | Direkt erreichbar (kein Host-Filter) |
+| API via Ingress | `http://$(minikube ip)/api` | Direkt erreichbar (kein Host-Filter) |
+| Health Check via Ingress | `http://$(minikube ip)/health` | Direkt erreichbar (kein Host-Filter) |
+| API via NodePort | `http://$(minikube ip):30080` | Direkt erreichbar |
+| Swagger UI | `http://$(minikube ip):30080/swagger` | Direkt erreichbar |
+| Health Check (NodePort) | `http://$(minikube ip):30080/health` | Direkt erreichbar |
+| PostgreSQL extern | `$(minikube ip):30432` | Direkt erreichbar |
 
-### hosts-Datei konfigurieren
+> **Hostname-Alias (optional):** Da die Ingress-Regel keinen `host:`-Filter definiert, ist ein `/etc/hosts`-Eintrag nicht erforderlich. Ein Alias kann aber für Lesbarkeit hinzugefügt werden:
 
-**Windows:** `C:\Windows\System32\drivers\etc\hosts`
+### hosts-Datei konfigurieren (optional)
+
 **Linux/macOS:** `/etc/hosts`
 
 ```
-<NODE-IP>  bombasticifccluster.local
+<MINIKUBE-IP>  bombasticifccluster.local
 ```
 
 Node-IP ermitteln:
 
-```powershell
-# Minikube
+```bash
 minikube ip
-
-# K3s / Ubuntu
-hostname -I | awk '{print $1}'
 ```
 
 ### Internes Netzwerk (Pod-zu-Pod)
@@ -668,9 +700,9 @@ kubectl delete namespace bombasticifccluster
 kubectl delete pv postgres-pv storage-pv
 ```
 
-### Minikube komplett entfernen
+### Minikube zurücksetzen (Ubuntu)
 
-```powershell
+```bash
 minikube stop
 minikube delete
 ```
