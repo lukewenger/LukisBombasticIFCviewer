@@ -18,7 +18,8 @@ When a user uploads an IFC file, a conversion job must be created automatically,
 
 IFC→XKT uses the standard xeokit two-step pipeline:
 1. **`IfcConvert`** (IfcOpenShell, statically-linked Linux binary) — `.ifc` → `.glb`
-2. **`convert2xkt`** (xeokit Node.js CLI, `@xeokit/xeokit-convert`) — `.glb` → `.xkt`
+2. **`xeokit-convert`** (xeokit Node.js CLI, `@xeokit/xeokit-convert`) — `.glb` → `.xkt`
+   > **Note:** the binary was renamed from `convert2xkt` to `xeokit-convert` in v1.3.0+
 
 Both must be installed inside the API Docker image.
 
@@ -32,7 +33,7 @@ Both must be installed inside the API Docker image.
 - `ConvertAsync(sourceFilePath, XKT, progress, ct)`:
   1. Derive temp `.glb` path and final `.xkt` path in storage dir (use `Guid.NewGuid()` prefix)
   2. Shell out: `IfcConvert "{src}" "{glbPath}" --use-element-guids` — report ~40% progress
-  3. Shell out: `convert2xkt -s "{glbPath}" -o "{xktPath}"` — report 100% progress
+  3. Shell out: `xeokit-convert -s "{glbPath}" -o "{xktPath}"` — report 100% progress
   4. Delete intermediate `.glb`
   5. Return `xktPath`
 - On non-zero exit code: throw `InvalidOperationException` with stderr

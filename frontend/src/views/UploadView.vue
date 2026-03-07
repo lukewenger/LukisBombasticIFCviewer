@@ -96,7 +96,7 @@ async function upload() {
     <div v-if="uploadSuccess" class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6 text-center">
       <CheckCircle class="w-12 h-12 text-green-500 mx-auto mb-3" />
       <p class="text-lg font-semibold text-green-700 dark:text-green-400">Upload erfolgreich!</p>
-      <p class="text-sm text-green-600 dark:text-green-500 mt-1">Weiterleitung zum Dashboard...</p>
+      <p class="text-sm text-green-600 dark:text-green-500 mt-1">Hochgeladen — Konvertierung läuft im Hintergrund</p>
     </div>
 
     <div v-else class="space-y-6">

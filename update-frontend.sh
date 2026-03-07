@@ -6,9 +6,11 @@ cd "$(dirname "$0")"
 echo "=== Frontend Update ==="
 
 # Build Docker image inside Minikube's Docker daemon
+# --no-cache ensures Vue/Vite always recompiles all source files so the
+# chunk hashes in the served assets always match the current index.html.
 echo "[1/3] Building frontend Docker image..."
 eval $(minikube docker-env)
-docker build -t bombasticifccluster-frontend:latest ./frontend
+docker build --no-cache -t bombasticifccluster-frontend:latest ./frontend
 
 # Restart the deployment to pick up the new image
 echo "[2/3] Restarting frontend deployment..."

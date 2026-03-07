@@ -123,55 +123,74 @@ LukisBombasticIFCviewer/
 
 ---
 
-## Schnellstart — Minikube (Ubuntu Server)
+## Deployment — Minikube (Ubuntu Server)
 
-### Phase 0–2: Abhängigkeiten, Minikube & API-Image
+### Erstinstallation (einmalig)
 
 ```bash
 chmod +x setupKubernetes.sh && ./setupKubernetes.sh
 ```
 
-Das Script installiert automatisch Docker, .NET SDK 8, kubectl und Minikube, erstellt EF Core Migrations, startet Minikube (`--cpus=2 --memory=4096 --driver=docker`) und baut das API-Image.
+Installiert Docker, .NET SDK 8, kubectl und Minikube, erstellt EF Core Migrations, startet Minikube (`--cpus=2 --memory=4096 --driver=docker`) und baut das erste API-Image.
 
-### Phase 3: Frontend-Image & Manifeste anwenden
+---
+
+### Deploy-Scripts
+
+| Script | Zweck |
+|--------|-------|
+| `deploy.sh` | **Vollständiger Redeploy** — Minikube prüfen, alle Manifeste anwenden, API + Frontend neu bauen und ausrollen |
+| `deployAPI.sh` | API-Image neu bauen und nur das API-Deployment neu starten |
+| `update-frontend.sh` | Frontend-Image neu bauen und nur das Frontend-Deployment neu starten |
+
+#### Vollständiger Redeploy
 
 ```bash
-# Docker CLI auf Minikube-Daemon zeigen
-eval $(minikube docker-env)
-
-# Frontend-Image bauen
-docker build -t bombasticifccluster-frontend:latest ./frontend
-
-# Manifeste in Reihenfolge anwenden
-kubectl apply -f kubernetes/namespace.yaml
-kubectl apply -f kubernetes/secrets.yaml
-kubectl apply -f kubernetes/configmap.yaml
-kubectl apply -f kubernetes/persistent-volumes.yaml
-kubectl apply -f kubernetes/postgres-deployment.yaml
-kubectl wait --for=condition=ready pod -l app=postgres -n bombasticifccluster --timeout=300s
-kubectl apply -f kubernetes/api-deployment.yaml
-kubectl wait --for=condition=ready pod -l app=bombasticifccluster-api -n bombasticifccluster --timeout=300s
-kubectl apply -f kubernetes/frontend-deployment.yaml
-kubectl wait --for=condition=ready pod -l app=bombasticifccluster-frontend -n bombasticifccluster --timeout=300s
-kubectl apply -f kubernetes/ingress.yaml
+bash deploy.sh
 ```
+
+Führt folgende Schritte aus:
+1. Minikube-Status prüfen, ggf. starten
+2. Host-Path-Verzeichnisse auf dem Minikube-Node anlegen (`/mnt/data/postgres`, `/mnt/data/storage`)
+3. Alle Kubernetes-Manifeste idempotent anwenden (`kubectl apply`)
+4. Auf PostgreSQL warten
+5. API-Image neu bauen (`--no-cache`) und ausrollen
+6. Frontend-Image neu bauen (`--no-cache`) und ausrollen
+
+#### Nur API aktualisieren
+
+```bash
+bash deployAPI.sh
+```
+
+#### Nur Frontend aktualisieren
+
+```bash
+bash update-frontend.sh
+```
+
+> **Hinweis:** Beide Image-Build-Schritte laufen mit `--no-cache`, damit Vite/Webpack alle Assets neu kompiliert und die Chunk-Hashes in `index.html` stets mit den tatsächlich ausgelieferten Dateien übereinstimmen. Ohne `--no-cache` kann es zu 404-Fehlern beim Laden von dynamisch importierten JS-Chunks kommen.
+
+---
 
 ### Zugriff nach dem Deployment
 
+Nach dem ersten Deployment die Minikube-IP in `/etc/hosts` eintragen:
+
 ```bash
-MINIKUBE_IP=$(minikube ip)
+echo "$(minikube ip) bombasticifccluster.local" | sudo tee -a /etc/hosts
+```
 
-# Frontend (via Ingress — kein Host-Filter, direkt erreichbar)
-http://$MINIKUBE_IP/
+| Ziel | URL |
+|------|-----|
+| Frontend | http://bombasticifccluster.local/ |
+| API (NodePort) | http://$(minikube ip):30080/ |
+| Swagger UI | http://bombasticifccluster.local/api/swagger |
+| Health Check | http://bombasticifccluster.local/health |
 
-# API (via NodePort)
-http://$MINIKUBE_IP:30080/
-
-# Swagger UI
-http://$MINIKUBE_IP:30080/swagger
-
-# Health Check
-http://$MINIKUBE_IP/health
+```bash
+# Minikube-IP anzeigen
+minikube ip
 ```
 
 ---
