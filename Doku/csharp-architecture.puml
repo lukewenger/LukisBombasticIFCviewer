@@ -1,0 +1,282 @@
+@startuml BombasticIFC Architecture
+!define RECTANGLE class
+
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+title BombasticIFC - Clean Architecture with CQRS
+
+' External Systems
+cloud "PostgreSQL\nDatabase" as DB <<External System>>
+cloud "File System\nStorage" as FileStorage <<External System>>
+actor "Frontend Client" as Client <<External Actor>>
+
+' API Layer
+package "BombasticIFC.API\n(Presentation Layer)" as API #E3F2FD {
+    component "Program.cs\n(Startup & DI)" as Startup
+    
+    rectangle Controllers {
+        component "AuthController\n/api/auth" as AuthCtrl
+        component "ModelsController\n/api/models" as ModelsCtrl
+        component "ConversionsController\n/api/conversions" as ConversionCtrl
+    }
+    
+    rectangle Middleware {
+        component "JWT Authentication" as JWT
+        component "CORS Policy" as CORS
+    }
+}
+
+' Application Layer
+package "BombasticIFC.Application\n(Use Cases / CQRS)" as Application #F3E5F5 {
+    
+    rectangle "Commands & Queries" as CQRS {
+        component "RegisterCommand" as RegisterCmd
+        component "LoginCommand" as LoginCmd
+        component "GetCurrentUserQuery" as GetUserQuery
+        component "UploadModelCommand" as UploadCmd
+        component "GetModelsQuery" as GetModelsQuery
+        component "GetModelByIdQuery" as GetModelQuery
+        component "CreateConversionJobCommand" as ConvertCmd
+        component "GetConversionJobQuery" as GetJobQuery
+    }
+    
+    rectangle "MediatR Handlers" as Handlers {
+        component "RegisterCommandHandler" as RegisterHandler
+        component "LoginCommandHandler" as LoginHandler
+        component "UploadModelHandler" as UploadHandler
+        component "ConversionJobHandler" as ConvertHandler
+    }
+    
+    rectangle "DTOs" as DTOs {
+        component "UserProfileDto" as UserDto
+        component "IfcModelDto" as ModelDto
+        component "ConversionJobDto" as JobDto
+        component "AuthResponseDto" as AuthDto
+    }
+    
+    rectangle "Service Interfaces" as AppInterfaces {
+        interface "IApplicationDbContext" as IDbContext
+        interface "ITokenService" as ITokenService
+        interface "IPasswordHasherService" as IPasswordService
+        interface "IFileStorageService" as IFileService
+        interface "IIfcConversionService" as IConversionService
+    }
+}
+
+' Domain Layer
+package "BombasticIFC.Domain\n(Core Business Logic)" as Domain #FFF3E0 {
+    
+    rectangle "Entities" as Entities {
+        component "BaseEntity\n(Id, CreatedAt, IsDeleted)" as BaseEntity
+        component "User\n(Username, Email, Role)" as User
+        component "IfcModel\n(FileName, Metadata, Status)" as IfcModel
+        component "ConversionJob\n(Status, Progress, Output)" as ConversionJob
+        component "ModelVersion\n(VersionNumber, FilePath)" as ModelVersion
+    }
+    
+    rectangle "Value Objects" as ValueObjects {
+        component "ModelMetadata\n(Schema, ElementCounts)" as Metadata
+    }
+    
+    rectangle "Enums" as Enums {
+        component "UserRole" as UserRole
+        component "ModelStatus" as ModelStatus
+        component "ConversionStatus" as ConversionStatus
+        component "ConversionFormat" as ConversionFormat
+    }
+    
+    rectangle "Repository Interfaces" as DomainInterfaces {
+        interface "IUserRepository" as IUserRepo
+        interface "IIfcModelRepository" as IModelRepo
+        interface "IConversionJobRepository" as IJobRepo
+    }
+}
+
+' Infrastructure Layer
+package "BombasticIFC.Infrastructure\n(External Concerns)" as Infrastructure #E8F5E9 {
+    
+    rectangle "Data Access" as DataAccess {
+        component "ApplicationDbContext\n(EF Core)" as DbContext
+        component "Entity Configurations\n(Fluent API)" as EntityConfig
+        component "Migrations" as Migrations
+    }
+    
+    rectangle "Repository Implementations" as Repositories {
+        component "UserRepository" as UserRepo
+        component "IfcModelRepository" as ModelRepo
+        component "ConversionJobRepository" as JobRepo
+    }
+    
+    rectangle "Service Implementations" as Services {
+        component "TokenService\n(JWT Generation)" as TokenService
+        component "PasswordHasherService\n(BCrypt)" as PasswordService
+        component "FileStorageService\n(Local FS)" as FileService
+    }
+    
+    rectangle "Database Seeding" as Seeding {
+        component "DatabaseSeeder\n(Sample Data)" as Seeder
+    }
+}
+
+' Shared Layer
+package "BombasticIFC.Shared\n(Cross-Cutting)" as Shared #FFEBEE {
+    component "AppConstants\n(MaxFileSize, Formats)" as Constants
+}
+
+' Relationships - Clean Architecture Flow
+
+' Client to API
+Client --> AuthCtrl : HTTP Requests
+Client --> ModelsCtrl : HTTP Requests
+Client --> ConversionCtrl : HTTP Requests
+
+' API Layer Dependencies
+Startup ..> JWT : configures
+Startup ..> CORS : configures
+Startup ..> Handlers : registers via MediatR
+
+AuthCtrl --> RegisterCmd : sends
+AuthCtrl --> LoginCmd : sends
+AuthCtrl --> GetUserQuery : sends
+
+ModelsCtrl --> UploadCmd : sends
+ModelsCtrl --> GetModelsQuery : sends
+ModelsCtrl --> GetModelQuery : sends
+
+ConversionCtrl --> ConvertCmd : sends
+ConversionCtrl --> GetJobQuery : sends
+
+' MediatR Flow
+RegisterCmd --> RegisterHandler : handled by
+LoginCmd --> LoginHandler : handled by
+UploadCmd --> UploadHandler : handled by
+ConvertCmd --> ConvertHandler : handled by
+
+' Handlers use Application Interfaces
+RegisterHandler ..> IPasswordService : uses
+RegisterHandler ..> ITokenService : uses
+RegisterHandler ..> IUserRepo : uses
+RegisterHandler ..> IDbContext : uses
+
+LoginHandler ..> IPasswordService : uses
+LoginHandler ..> ITokenService : uses
+LoginHandler ..> IUserRepo : uses
+
+UploadHandler ..> IFileService : uses
+UploadHandler ..> IModelRepo : uses
+UploadHandler ..> IDbContext : uses
+
+ConvertHandler ..> IModelRepo : uses
+ConvertHandler ..> IJobRepo : uses
+ConvertHandler ..> IDbContext : uses
+
+' Handlers return DTOs
+RegisterHandler --> AuthDto : returns
+UploadHandler --> ModelDto : returns
+ConvertHandler --> JobDto : returns
+
+' Application depends on Domain
+Handlers ..> User : uses
+Handlers ..> IfcModel : uses
+Handlers ..> ConversionJob : uses
+
+AppInterfaces ..> DomainInterfaces : depends on
+
+' Domain Layer Relationships
+User "1" --> "n" IfcModel : owns
+IfcModel "1" --> "n" ConversionJob : has
+IfcModel "1" --> "n" ModelVersion : has
+IfcModel --> Metadata : contains
+User --> UserRole : has
+IfcModel --> ModelStatus : has
+ConversionJob --> ConversionStatus : has
+ConversionJob --> ConversionFormat : targets
+
+' Infrastructure implements Domain & Application Interfaces
+UserRepo ..|> IUserRepo : implements
+ModelRepo ..|> IModelRepo : implements
+JobRepo ..|> IJobRepo : implements
+
+TokenService ..|> ITokenService : implements
+PasswordService ..|> IPasswordService : implements
+FileService ..|> IFileService : implements
+
+DbContext ..|> IDbContext : implements
+
+' Infrastructure to Domain
+UserRepo ..> User : queries/persists
+ModelRepo ..> IfcModel : queries/persists
+JobRepo ..> ConversionJob : queries/persists
+
+DbContext --> EntityConfig : configured by
+DbContext --> Migrations : evolves via
+Seeder --> DbContext : seeds
+
+' External Systems
+DbContext --> DB : Npgsql\nEF Core
+Repositories --> DB : via DbContext
+FileService --> FileStorage : read/write files
+
+' Shared Layer used everywhere
+API ..> Constants
+Application ..> Constants
+Infrastructure ..> Constants
+
+' Dependency Direction Notes
+note right of Domain
+  **Core Domain Layer**
+  - No external dependencies
+  - Defines interfaces
+  - Contains business rules
+  - Pure C# logic
+end note
+
+note right of Application
+  **Application Layer**
+  - Depends ONLY on Domain
+  - Orchestrates use cases
+  - CQRS with MediatR
+  - DTOs for data transfer
+end note
+
+note right of Infrastructure
+  **Infrastructure Layer**
+  - Implements Domain interfaces
+  - Implements Application interfaces
+  - EF Core, PostgreSQL
+  - JWT, BCrypt, File I/O
+end note
+
+note right of API
+  **API/Presentation Layer**
+  - Depends on Application & Infrastructure
+  - ASP.NET Core Web API
+  - JWT Bearer Auth
+  - Swagger/OpenAPI
+  - Registers all services
+end note
+
+legend top left
+  **Architecture Patterns:**
+  • Clean Architecture (Onion)
+  • CQRS with MediatR
+  • Repository Pattern
+  • Dependency Inversion
+  • Soft Delete Pattern
+  • Value Objects
+  • Domain Factory Methods
+  
+  **Key Technologies:**
+  • .NET 8.0
+  • ASP.NET Core 8.0
+  • Entity Framework Core 8.0
+  • PostgreSQL (Npgsql)
+  • JWT Bearer Authentication
+  • BCrypt Password Hashing
+  • MediatR 12.2.0
+  • FluentValidation 11.9.0
+endlegend
+
+@enduml
