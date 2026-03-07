@@ -21,9 +21,10 @@ package "External Access" {
 package "Kubernetes Cluster" <<Namespace: bombasticifccluster>> {
   
   package "Ingress Layer" {
-    component "Ingress Controller\n(nginx / traefik)" as ingress KUBERNETES_COLOR
+    component "Ingress Controller\n(nginx)" as ingress KUBERNETES_COLOR
     note right of ingress
-      Host: bombasticifccluster.local
+      Host: (kein Filter - Catch-All)
+      IngressClass: nginx
       Max Body Size: 500MB
       
       Routes:
