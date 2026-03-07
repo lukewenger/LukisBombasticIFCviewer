@@ -1,0 +1,179 @@
+@startuml BombasticIFC Kubernetes Architecture
+!define KUBERNETES_COLOR #326CE5
+!define DATABASE_COLOR #336791
+!define API_COLOR #512BD4
+!define FRONTEND_COLOR #42B883
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam ArrowColor #666666
+
+title BombasticIFC Cluster - Kubernetes Architecture
+
+actor "Client\n(Browser)" as client #lightblue
+
+package "External Access" {
+  component "NodePort\n:30080" as nodeport_api #lightgray
+  component "NodePort\n:30432" as nodeport_db #lightgray
+}
+
+package "Kubernetes Cluster" <<Namespace: bombasticifccluster>> {
+  
+  package "Ingress Layer" {
+    component "Ingress Controller\n(nginx / traefik)" as ingress KUBERNETES_COLOR
+    note right of ingress
+      Host: bombasticifccluster.local
+      Max Body Size: 500MB
+      
+      Routes:
+      • / → frontend-service
+      • /api → api-service
+      • /health → api-service
+    end note
+  }
+
+  package "Frontend Layer" {
+    component "frontend-service\n(ClusterIP :80)" as frontend_svc KUBERNETES_COLOR
+    
+    frame "Frontend Pods" {
+      component "Frontend Pod 1\n(Vue.js + nginx)\nPort: 80" as frontend_pod1 FRONTEND_COLOR
+    }
+    
+    note right of frontend_pod1
+      Image: bombasticifccluster-frontend:latest
+      Replicas: 1
+      Resources:
+      • CPU: 50m / 100m
+      • Memory: 64Mi / 128Mi
+    end note
+  }
+
+  package "API Layer" {
+    component "api-service\n(ClusterIP :80)" as api_svc KUBERNETES_COLOR
+    
+    frame "API Pods" {
+      component "API Pod 1\n(.NET 8)\nPort: 8080" as api_pod1 API_COLOR
+      component "API Pod 2\n(.NET 8)\nPort: 8080" as api_pod2 API_COLOR
+    }
+    
+    note right of api_pod1
+      Image: bombasticifccluster-api:latest
+      Replicas: 2
+      Resources:
+      • CPU: 250m / 500m
+      • Memory: 256Mi / 512Mi
+      
+      Environment:
+      • ASPNETCORE_ENVIRONMENT: Production
+      • ConnectionStrings (from Secret)
+      • JwtSettings__Secret (from Secret)
+      • StoragePath: /data/storage
+    end note
+  }
+
+  package "Database Layer" {
+    component "postgres-service\n(ClusterIP :5432)" as db_svc KUBERNETES_COLOR
+    
+    component "PostgreSQL Pod\n(PostgreSQL 16-alpine)\nPort: 5432" as db_pod DATABASE_COLOR
+    
+    note right of db_pod
+      Image: postgres:16-alpine
+      Replicas: 1
+      Resources:
+      • CPU: 250m / 500m
+      • Memory: 256Mi / 512Mi
+      
+      Health Checks:
+      • Liveness: pg_isready -U postgres
+      • Readiness: pg_isready -U postgres
+    end note
+  }
+
+  package "Configuration" {
+    storage "Secrets" as secrets #yellow
+    storage "ConfigMap" as configmap #lightyellow
+    
+    note right of secrets
+      • postgres-user
+      • postgres-password
+      • postgres-db
+      • connection-string
+      • jwt-secret
+    end note
+  }
+
+  package "Persistent Storage" {
+    database "postgres-pvc\n(10Gi, RWO)" as pvc_db
+    database "storage-pvc\n(50Gi, RWX)" as pvc_storage
+    
+    storage "postgres-pv\n/mnt/data/postgres" as pv_db #lightgray
+    storage "storage-pv\n/mnt/data/storage" as pv_storage #lightgray
+  }
+}
+
+package "Host Storage" {
+  folder "/mnt/data/postgres\n(PostgreSQL Data)" as host_db #lightgray
+  folder "/mnt/data/storage\n(IFC Files)" as host_storage #lightgray
+}
+
+' Client connections
+client --> nodeport_api : "HTTP :30080\n(Direct Access)"
+client --> nodeport_db : "TCP :30432\n(DB Tools)"
+client --> ingress : "HTTP\nbombasticifccluster.local"
+
+' Ingress routing
+ingress --> frontend_svc : "/ (root)"
+ingress --> api_svc : "/api, /health"
+
+' NodePort connections
+nodeport_api --> api_svc
+nodeport_db --> db_svc
+
+' Service to Pod connections
+frontend_svc --> frontend_pod1
+api_svc --> api_pod1
+api_svc --> api_pod2
+db_svc --> db_pod
+
+' API to Database connection
+api_pod1 ..> db_svc : "PostgreSQL\nConnection"
+api_pod2 ..> db_svc : "PostgreSQL\nConnection"
+
+' Configuration connections
+api_pod1 ..> secrets : "read"
+api_pod2 ..> secrets : "read"
+db_pod ..> secrets : "read"
+db_pod ..> configmap : "read"
+
+' Storage connections
+db_pod --> pvc_db : "mount\n/var/lib/postgresql/data"
+api_pod1 --> pvc_storage : "mount\n/data/storage"
+api_pod2 --> pvc_storage : "mount\n/data/storage"
+
+pvc_db --> pv_db : "bound"
+pvc_storage --> pv_storage : "bound"
+
+pv_db --> host_db : "hostPath"
+pv_storage --> host_storage : "hostPath"
+
+legend right
+  |= Component |= Type |= Description |
+  | <back:FRONTEND_COLOR>   </back> Frontend | Vue.js + nginx | Web UI |
+  | <back:API_COLOR>   </back> API | .NET 8 | REST API |
+  | <back:DATABASE_COLOR>   </back> Database | PostgreSQL 16 | Data persistence |
+  | <back:KUBERNETES_COLOR>   </back> Service | Kubernetes | Load balancing |
+  
+  **Resource Totals (Default):**
+  • CPU Request: 550m (2x250m + 50m)
+  • CPU Limit: 1100m (2x500m + 100m)
+  • Memory Request: 576Mi (2x256Mi + 64Mi)
+  • Memory Limit: 1152Mi (2x512Mi + 128Mi)
+  • + PostgreSQL: 250m/500m CPU, 256Mi/512Mi RAM
+  
+  **Storage:**
+  • postgres-pv: 10Gi (ReadWriteOnce)
+  • storage-pv: 50Gi (ReadWriteMany)
+endlegend
+
+@enduml
