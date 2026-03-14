@@ -2,10 +2,11 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { LayoutDashboard, Eye, Upload, RefreshCw, Box, List } from 'lucide-vue-next'
+import { LayoutDashboard, Eye, Upload, RefreshCw, Box, List, Trash2 } from 'lucide-vue-next'
 import { modelsApi } from '../api/models'
+import { conversionsApi } from '../api/conversions'
 import type { IfcModelDto } from '../types'
-import { ModelStatus } from '../types/models'
+import { ConversionFormat, ModelStatus } from '../types/models'
 
 const DUPLEX_DEMO_URL = '/samples/Duplex.xkt'
 
@@ -19,7 +20,36 @@ const activeTab = ref<'models' | 'viewer'>('models')
 const models = ref<IfcModelDto[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
+const isDeleting = ref<Record<string, boolean>>({})
+const isRetrying = ref<Record<string, boolean>>({})
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+type ToastType = 'success' | 'error'
+interface ToastMessage {
+  id: number
+  message: string
+  type: ToastType
+}
+
+const toasts = ref<ToastMessage[]>([])
+let toastId = 0
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
+function removeToast(id: number) {
+  toasts.value = toasts.value.filter((toast) => toast.id !== id)
+  const timer = toastTimers.get(id)
+  if (timer) {
+    clearTimeout(timer)
+    toastTimers.delete(id)
+  }
+}
+
+function showToast(message: string, type: ToastType = 'success', duration = 3000) {
+  const id = ++toastId
+  toasts.value.push({ id, message, type })
+  const timer = setTimeout(() => removeToast(id), duration)
+  toastTimers.set(id, timer)
+}
 
 const hasActiveJobs = computed(() =>
   models.value.some(
@@ -57,9 +87,64 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const viewerLoading = ref(false)
 const viewerError = ref<string | null>(null)
 const viewerModelName = ref('Duplex (Demo)')
+const selectedEntityId = ref<string | null>(null)
+const selectedAttributes = ref<Record<string, string>>({})
+const selectedViewerModelId = ref<string | null>(null)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let viewer: any = null
 let viewerInitialized = false
+
+function clearSelection() {
+  if (!viewer || !selectedEntityId.value) {
+    selectedEntityId.value = null
+    selectedAttributes.value = {}
+    return
+  }
+
+  const oldEntity = viewer.scene?.objects?.[selectedEntityId.value]
+  if (oldEntity) {
+    oldEntity.highlighted = false
+  }
+
+  selectedEntityId.value = null
+  selectedAttributes.value = {}
+}
+
+function setSelectedEntity(entity: any) {
+  const entityId = String(entity.id)
+
+  if (selectedEntityId.value) {
+    const oldEntity = viewer.scene?.objects?.[selectedEntityId.value]
+    if (oldEntity) {
+      oldEntity.highlighted = false
+    }
+  }
+
+  entity.highlighted = true
+  selectedEntityId.value = entityId
+
+  const metaObject = viewer.metaScene?.metaObjects?.[entityId]
+  const attributes: Record<string, string> = {
+    'GlobalId': entityId,
+    'IFC-Typ': metaObject?.type ?? '-',
+    'Name': metaObject?.name ?? '-',
+  }
+
+  const parentName = metaObject?.parent?.name
+  if (parentName) {
+    attributes.Parent = String(parentName)
+  }
+
+  const propertySets = metaObject?.propertySets ?? []
+  for (const propertySet of propertySets) {
+    for (const property of propertySet.properties ?? []) {
+      const key = property.name ? String(property.name) : 'Property'
+      attributes[key] = property.value != null ? String(property.value) : '-'
+    }
+  }
+
+  selectedAttributes.value = attributes
+}
 
 async function initViewer(src?: string, modelName?: string) {
   if (!canvasRef.value) return
@@ -67,6 +152,7 @@ async function initViewer(src?: string, modelName?: string) {
   viewerLoading.value = true
   viewerError.value = null
   viewerModelName.value = modelName ?? 'Duplex (Demo)'
+  clearSelection()
 
   try {
     // Destroy previous viewer if exists
@@ -97,6 +183,13 @@ async function initViewer(src?: string, modelName?: string) {
       edges: true,
     })
 
+    viewer.scene.input.on('mouseclicked', (coords: number[]) => {
+      const pickResult = viewer.scene.pick({ canvasPos: coords })
+      if (pickResult?.entity) {
+        setSelectedEntity(pickResult.entity)
+      }
+    })
+
     sceneModel.on('loaded', () => {
       viewer.cameraFlight.flyTo(sceneModel)
       viewerLoading.value = false
@@ -118,10 +211,49 @@ async function initViewer(src?: string, modelName?: string) {
 }
 
 function openModelInViewer(model: IfcModelDto) {
+  selectedViewerModelId.value = model.id
   activeTab.value = 'viewer'
   nextTick(() => {
     initViewer(modelsApi.getModelOutputUrl(model.id), model.fileName)
   })
+}
+
+async function deleteModel(model: IfcModelDto) {
+  const confirmed = window.confirm(`Modell "${model.fileName}" wirklich loeschen?`)
+  if (!confirmed) return
+
+  isDeleting.value[model.id] = true
+  try {
+    await modelsApi.deleteModel(model.id)
+    models.value = models.value.filter((m) => m.id !== model.id)
+    showToast(`Modell "${model.fileName}" wurde geloescht.`, 'success')
+
+    if (selectedViewerModelId.value === model.id) {
+      selectedViewerModelId.value = null
+      activeTab.value = 'models'
+      nextTick(() => initViewer())
+    }
+  } catch {
+    error.value = 'Modell konnte nicht geloescht werden.'
+    showToast('Loeschen fehlgeschlagen.', 'error')
+  } finally {
+    isDeleting.value[model.id] = false
+  }
+}
+
+async function retryConversion(model: IfcModelDto) {
+  isRetrying.value[model.id] = true
+  try {
+    await conversionsApi.createConversionJob(model.id, ConversionFormat.XKT)
+    await fetchModels()
+    startPolling()
+    showToast(`Konvertierung fuer "${model.fileName}" wurde neu gestartet.`, 'success')
+  } catch {
+    error.value = 'Konvertierung konnte nicht neu gestartet werden.'
+    showToast('Konvertierung konnte nicht neu gestartet werden.', 'error')
+  } finally {
+    isRetrying.value[model.id] = false
+  }
 }
 
 // When switching to viewer tab, init with demo if not yet initialized
@@ -140,6 +272,11 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  for (const timer of toastTimers.values()) {
+    clearTimeout(timer)
+  }
+  toastTimers.clear()
+  clearSelection()
   if (viewer) {
     viewer.destroy()
     viewer = null
@@ -187,6 +324,20 @@ function formatDate(dateStr: string): string {
 
 <template>
   <div class="max-w-6xl mx-auto px-4 py-8">
+    <div class="fixed top-20 right-4 z-50 space-y-2 w-[22rem]">
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="rounded-xl shadow-lg border px-4 py-3 text-sm flex items-start justify-between gap-3"
+        :class="toast.type === 'success'
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200'
+          : 'bg-red-50 border-red-200 text-red-900 dark:bg-red-900/30 dark:border-red-700 dark:text-red-200'"
+      >
+        <span>{{ toast.message }}</span>
+        <button class="text-current/70 hover:text-current" @click="removeToast(toast.id)">X</button>
+      </div>
+    </div>
+
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
       <div class="flex items-center gap-3">
@@ -310,21 +461,43 @@ function formatDate(dateStr: string): string {
                   {{ formatDate(model.createdAt) }}
                 </td>
                 <td class="px-6 py-4 text-right">
-                  <button
-                    v-if="model.status === ModelStatus.Ready"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                    @click="openModelInViewer(model)"
-                  >
-                    <Eye class="w-4 h-4" />
-                    Anzeigen
-                  </button>
-                  <span
-                    v-else-if="model.status === ModelStatus.Processing || model.status === ModelStatus.Uploaded"
-                    class="text-sm text-gray-400 dark:text-gray-500"
-                  >
-                    Warten...
-                  </span>
-              </td>
+                  <div class="inline-flex items-center gap-1.5">
+                    <button
+                      v-if="model.status === ModelStatus.Ready"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                      @click="openModelInViewer(model)"
+                    >
+                      <Eye class="w-4 h-4" />
+                      Anzeigen
+                    </button>
+
+                    <button
+                      v-if="model.status === ModelStatus.Ready || model.status === ModelStatus.Failed"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors disabled:opacity-60"
+                      :disabled="isRetrying[model.id]"
+                      @click="retryConversion(model)"
+                    >
+                      <RefreshCw class="w-4 h-4" :class="isRetrying[model.id] ? 'animate-spin' : ''" />
+                      Redo
+                    </button>
+
+                    <button
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-60"
+                      :disabled="isDeleting[model.id]"
+                      @click="deleteModel(model)"
+                    >
+                      <Trash2 class="w-4 h-4" :class="isDeleting[model.id] ? 'animate-pulse' : ''" />
+                      Loeschen
+                    </button>
+
+                    <span
+                      v-if="model.status === ModelStatus.Processing || model.status === ModelStatus.Uploaded"
+                      class="text-sm text-gray-400 dark:text-gray-500"
+                    >
+                      Warten...
+                    </span>
+                  </div>
+                </td>
             </tr>
           </tbody>
         </table>
@@ -359,8 +532,26 @@ function formatDate(dateStr: string): string {
         <p class="text-red-700 dark:text-red-400">{{ viewerError }}</p>
       </div>
 
-      <!-- Canvas (always rendered so ref is available) -->
-      <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : 'h-[60vh]'"></canvas>
+      <div class="relative">
+        <!-- Canvas (always rendered so ref is available) -->
+        <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : 'h-[60vh]'"></canvas>
+
+        <div
+          v-if="selectedEntityId"
+          class="absolute top-4 right-4 w-80 max-h-[80%] overflow-y-auto bg-white/95 dark:bg-gray-800/95 rounded-xl shadow-xl p-4 z-10 border border-gray-200 dark:border-gray-700"
+        >
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">IFC-Attribute</h3>
+            <button class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="clearSelection">X</button>
+          </div>
+          <dl class="space-y-2 text-xs">
+            <div v-for="(value, key) in selectedAttributes" :key="key">
+              <dt class="text-gray-500 dark:text-gray-400">{{ key }}</dt>
+              <dd class="text-gray-900 dark:text-white font-medium break-all">{{ value }}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
     </div>
   </div>
 </template>
