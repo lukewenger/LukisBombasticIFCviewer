@@ -136,4 +136,23 @@ public class ModelsController : ControllerBase
         var fileName = $"{id}.xkt";
         return File(stream, "application/octet-stream", fileName);
     }
+
+    /// <summary>
+    /// Delete a model by ID
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteModel(Guid id)
+    {
+        try
+        {
+            await _mediator.Send(new DeleteModelCommand(id));
+            return NoContent();
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
+    }
 }

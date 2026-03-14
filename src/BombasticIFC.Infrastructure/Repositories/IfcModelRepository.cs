@@ -22,12 +22,13 @@ public class IfcModelRepository : IIfcModelRepository
         return await _context.IfcModels
             .Include(m => m.ConversionJobs)
             .Include(m => m.Versions)
-            .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(m => m.Id == id && !m.IsDeleted, cancellationToken);
     }
 
     public async Task<IEnumerable<IfcModel>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.IfcModels
+            .Where(m => !m.IsDeleted)
             .Include(m => m.ConversionJobs)
             .Include(m => m.Versions)
             .ToListAsync(cancellationToken);
@@ -36,7 +37,7 @@ public class IfcModelRepository : IIfcModelRepository
     public async Task<IEnumerable<IfcModel>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _context.IfcModels
-            .Where(m => m.UserId == userId)
+            .Where(m => m.UserId == userId && !m.IsDeleted)
             .Include(m => m.ConversionJobs)
             .Include(m => m.Versions)
             .ToListAsync(cancellationToken);
@@ -67,6 +68,6 @@ public class IfcModelRepository : IIfcModelRepository
 
     public async Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await _context.IfcModels.AnyAsync(m => m.Id == id, cancellationToken);
+        return await _context.IfcModels.AnyAsync(m => m.Id == id && !m.IsDeleted, cancellationToken);
     }
 }

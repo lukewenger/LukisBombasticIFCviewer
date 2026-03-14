@@ -17,12 +17,67 @@ const error = ref<string | null>(null)
 const usingDemo = ref(false)
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const selectedEntityId = ref<string | null>(null)
+const selectedAttributes = ref<Record<string, string>>({})
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let viewer: any = null
 
+function clearSelection() {
+  if (!viewer || !selectedEntityId.value) {
+    selectedEntityId.value = null
+    selectedAttributes.value = {}
+    return
+  }
+
+  const oldEntity = viewer.scene?.objects?.[selectedEntityId.value]
+  if (oldEntity) {
+    oldEntity.highlighted = false
+  }
+
+  selectedEntityId.value = null
+  selectedAttributes.value = {}
+}
+
+function setSelectedEntity(entity: any) {
+  const entityId = String(entity.id)
+
+  if (selectedEntityId.value) {
+    const oldEntity = viewer.scene?.objects?.[selectedEntityId.value]
+    if (oldEntity) {
+      oldEntity.highlighted = false
+    }
+  }
+
+  entity.highlighted = true
+  selectedEntityId.value = entityId
+
+  const metaObject = viewer.metaScene?.metaObjects?.[entityId]
+  const attributes: Record<string, string> = {
+    'GlobalId': entityId,
+    'IFC-Typ': metaObject?.type ?? '-',
+    'Name': metaObject?.name ?? '-',
+  }
+
+  const parentName = metaObject?.parent?.name
+  if (parentName) {
+    attributes.Parent = String(parentName)
+  }
+
+  const propertySets = metaObject?.propertySets ?? []
+  for (const propertySet of propertySets) {
+    for (const property of propertySet.properties ?? []) {
+      const key = property.name ? String(property.name) : 'Property'
+      attributes[key] = property.value != null ? String(property.value) : '-'
+    }
+  }
+
+  selectedAttributes.value = attributes
+}
+
 async function initViewer() {
   if (!canvasRef.value) return
+  clearSelection()
 
   try {
     // Dynamic import to avoid SSR/build issues with xeokit
@@ -54,6 +109,13 @@ async function initViewer() {
       id: 'model',
       src,
       edges: true,
+    })
+
+    viewer.scene.input.on('mouseclicked', (coords: number[]) => {
+      const pickResult = viewer.scene.pick({ canvasPos: coords })
+      if (pickResult?.entity) {
+        setSelectedEntity(pickResult.entity)
+      }
     })
 
     sceneModel.on('loaded', () => {
@@ -88,6 +150,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearSelection()
   if (viewer) {
     viewer.destroy()
     viewer = null
@@ -138,6 +201,22 @@ onUnmounted(() => {
     <!-- Canvas -->
     <div v-show="!isLoading && !error" class="flex-1 relative bg-gray-100 dark:bg-gray-900">
       <canvas ref="canvasRef" class="w-full h-full block"></canvas>
+
+      <div
+        v-if="selectedEntityId"
+        class="absolute top-4 right-4 w-80 max-h-[80%] overflow-y-auto bg-white/95 dark:bg-gray-800/95 rounded-xl shadow-xl p-4 z-10 border border-gray-200 dark:border-gray-700"
+      >
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">IFC-Attribute</h3>
+          <button class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="clearSelection">X</button>
+        </div>
+        <dl class="space-y-2 text-xs">
+          <div v-for="(value, key) in selectedAttributes" :key="key">
+            <dt class="text-gray-500 dark:text-gray-400">{{ key }}</dt>
+            <dd class="text-gray-900 dark:text-white font-medium break-all">{{ value }}</dd>
+          </div>
+        </dl>
+      </div>
     </div>
   </div>
 </template>
