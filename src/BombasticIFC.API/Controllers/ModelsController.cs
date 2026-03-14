@@ -19,16 +19,20 @@ public class ModelsController : ControllerBase
     private readonly IConversionJobRepository _conversionJobRepository;
     private readonly IFileStorageService _fileStorageService;
 
+    private readonly IIfcModelRepository _modelRepository;
+
     public ModelsController(
         IMediator mediator,
         ILogger<ModelsController> logger,
         IConversionJobRepository conversionJobRepository,
-        IFileStorageService fileStorageService)
+        IFileStorageService fileStorageService,
+        IIfcModelRepository modelRepository)
     {
         _mediator = mediator;
         _logger = logger;
         _conversionJobRepository = conversionJobRepository;
         _fileStorageService = fileStorageService;
+        _modelRepository = modelRepository;
     }
 
     /// <summary>
@@ -84,7 +88,27 @@ public class ModelsController : ControllerBase
     }
 
     /// <summary>
-    /// Get the converted output file for a model
+    /// Get the original IFC source file for a model
+    /// </summary>
+    [HttpGet("{id}/original")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetModelOriginal(Guid id)
+    {
+        var model = await _modelRepository.GetByIdAsync(id);
+        if (model == null)
+            return NotFound(new { message = "Model not found" });
+
+        if (!await _fileStorageService.FileExistsAsync(model.OriginalFilePath))
+            return NotFound(new { message = "Original file not found on disk" });
+
+        var stream = await _fileStorageService.GetFileAsync(model.OriginalFilePath);
+        var fileName = Path.GetFileName(model.OriginalFilePath);
+        return File(stream, "application/octet-stream", fileName);
+    }
+
+    /// <summary>
+    /// Get the converted XKT output file for a model
     /// </summary>
     [HttpGet("{id}/output")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -98,13 +122,37 @@ public class ModelsController : ControllerBase
             .FirstOrDefault();
 
         if (completedJob?.OutputFilePath == null)
+        {
             return NotFound(new { message = "No converted output available for this model" });
+        }
 
         if (!await _fileStorageService.FileExistsAsync(completedJob.OutputFilePath))
+        {
+            Response.ContentType = "application/json";
             return NotFound(new { message = "Output file not found on disk" });
+        }
 
         var stream = await _fileStorageService.GetFileAsync(completedJob.OutputFilePath);
-        var fileName = Path.GetFileName(completedJob.OutputFilePath);
+        var fileName = $"{id}.xkt";
         return File(stream, "application/octet-stream", fileName);
+    }
+
+    /// <summary>
+    /// Delete a model by ID
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteModel(Guid id)
+    {
+        try
+        {
+            await _mediator.Send(new DeleteModelCommand(id));
+            return NoContent();
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
     }
 }

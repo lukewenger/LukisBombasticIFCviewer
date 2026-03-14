@@ -21,13 +21,27 @@ public class FileStorageService : IFileStorageService
 
     public async Task<string> SaveFileAsync(Stream fileStream, string fileName, CancellationToken cancellationToken = default)
     {
-        var uniqueFileName = $"{Guid.NewGuid()}_{fileName}";
+        var uniqueFileName = $"{Guid.NewGuid()}_{SanitizeFileName(fileName)}";
         var filePath = Path.Combine(_storagePath, uniqueFileName);
 
         using var fileStreamOutput = File.Create(filePath);
         await fileStream.CopyToAsync(fileStreamOutput, cancellationToken);
 
         return filePath;
+    }
+
+    private static string SanitizeFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return "uploaded.ifc";
+
+        var normalized = Path.GetFileName(fileName);
+        foreach (var invalidChar in Path.GetInvalidFileNameChars())
+        {
+            normalized = normalized.Replace(invalidChar, '_');
+        }
+
+        return string.IsNullOrWhiteSpace(normalized) ? "uploaded.ifc" : normalized;
     }
 
     public async Task<Stream> GetFileAsync(string filePath, CancellationToken cancellationToken = default)

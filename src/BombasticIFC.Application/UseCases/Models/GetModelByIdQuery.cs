@@ -1,5 +1,6 @@
 using BombasticIFC.Application.DTOs;
 using BombasticIFC.Domain.Repositories;
+using BombasticIFC.Domain.Enums;
 using MediatR;
 
 namespace BombasticIFC.Application.UseCases.Models;
@@ -12,10 +13,14 @@ public record GetModelByIdQuery(Guid ModelId) : IRequest<IfcModelDto?>;
 public class GetModelByIdQueryHandler : IRequestHandler<GetModelByIdQuery, IfcModelDto?>
 {
     private readonly IIfcModelRepository _modelRepository;
+    private readonly IConversionJobRepository _jobRepository;
 
-    public GetModelByIdQueryHandler(IIfcModelRepository modelRepository)
+    public GetModelByIdQueryHandler(
+        IIfcModelRepository modelRepository,
+        IConversionJobRepository jobRepository)
     {
         _modelRepository = modelRepository;
+        _jobRepository = jobRepository;
     }
 
     public async Task<IfcModelDto?> Handle(GetModelByIdQuery request, CancellationToken cancellationToken)
@@ -25,6 +30,12 @@ public class GetModelByIdQueryHandler : IRequestHandler<GetModelByIdQuery, IfcMo
         if (model == null)
             return null;
 
+        var jobs = await _jobRepository.GetByModelIdAsync(model.Id, cancellationToken);
+        var latestCompleted = jobs
+            .Where(j => j.Status == ConversionStatus.Completed && j.OutputFilePath != null)
+            .OrderByDescending(j => j.CompletedAt)
+            .FirstOrDefault();
+
         return new IfcModelDto
         {
             Id = model.Id,
@@ -32,7 +43,9 @@ public class GetModelByIdQueryHandler : IRequestHandler<GetModelByIdQuery, IfcMo
             FileSizeBytes = model.FileSizeBytes,
             Status = model.Status,
             CreatedAt = model.CreatedAt,
-            UpdatedAt = model.UpdatedAt
+            UpdatedAt = model.UpdatedAt,
+            XktOutputUrl = latestCompleted != null ? $"/api/models/{model.Id}/output" : null,
+            OriginalFileUrl = $"/api/models/{model.Id}/original"
         };
     }
 }
