@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, AlertCircle, Box } from 'lucide-vue-next'
 import { modelsApi } from '../api/models'
 import type { IfcModelDto } from '../types'
-import { ModelStatus } from '../types/models'
 
 const DUPLEX_DEMO_URL = '/samples/Duplex.xkt'
 
@@ -41,10 +40,10 @@ async function initViewer() {
 
     const xktLoader = new XKTLoaderPlugin(viewer)
 
-    // Determine source URL
+    // Use the XKT URL from the DTO. Fall back to demo if not available.
     let src: string
-    if (model.value && model.value.status === ModelStatus.Ready) {
-      src = modelsApi.getModelOutputUrl(modelId)
+    if (model.value?.xktOutputUrl) {
+      src = model.value.xktOutputUrl
       usingDemo.value = false
     } else {
       src = DUPLEX_DEMO_URL

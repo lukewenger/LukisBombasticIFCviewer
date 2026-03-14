@@ -36,6 +36,10 @@ export interface IfcModelDto {
   createdAt: string
   updatedAt: string | null
   metadata: ModelMetadataDto | null
+  /** Relative URL to download the converted XKT file. Null until a conversion job completes. */
+  xktOutputUrl: string | null
+  /** Relative URL to download the original IFC file. */
+  originalFileUrl: string | null
 }
 
 /** Model metadata */

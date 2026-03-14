@@ -14,6 +14,10 @@ public class IfcModelDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public ModelMetadataDto? Metadata { get; set; }
+    /// <summary>Relative URL to download the converted XKT file. Null until a conversion job completes.</summary>
+    public string? XktOutputUrl { get; set; }
+    /// <summary>Relative URL to download the original IFC file. Always set once the model exists.</summary>
+    public string? OriginalFileUrl { get; set; }
 }
 
 public class ModelMetadataDto
