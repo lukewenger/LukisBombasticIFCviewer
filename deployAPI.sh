@@ -24,14 +24,18 @@ eval "$(minikube docker-env)"
 docker build --no-cache -t "${API_IMAGE}" .
 ok "Image built: ${API_IMAGE}"
 
-# Restart the deployment to pick up the new image
-info "[2/3] Restarting API deployment..."
+# Apply deployment manifest and restart to pick up resource/env changes plus new image
+info "[2/4] Applying API manifest..."
+kubectl apply -f kubernetes/api-deployment.yaml
+ok "API manifest applied"
+
+info "[3/4] Restarting API deployment..."
 kubectl rollout restart deployment/"${DEPLOYMENT}" -n "${NAMESPACE}"
 kubectl rollout status deployment/"${DEPLOYMENT}" -n "${NAMESPACE}" --timeout="${TIMEOUT}"
 ok "Rollout complete"
 
 # Verify
-info "[3/3] Verifying..."
+info "[4/4] Verifying..."
 POD=$(kubectl get pods -n "${NAMESPACE}" -l app=bombasticifccluster-api \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 echo "  API pod:  ${POD}"

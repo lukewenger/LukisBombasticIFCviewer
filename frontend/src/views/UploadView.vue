@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Upload, FileUp, CheckCircle, AlertCircle } from 'lucide-vue-next'
+import { Upload, FileUp, CheckCircle, AlertCircle, Loader2 } from 'lucide-vue-next'
 import { modelsApi } from '../api/models'
 import { conversionsApi } from '../api/conversions'
-import { ConversionFormat } from '../types/models'
+import { ConversionFormat, ModelStatus } from '../types/models'
 
 const router = useRouter()
 
@@ -14,6 +14,54 @@ const uploadProgress = ref(0)
 const isUploading = ref(false)
 const error = ref<string | null>(null)
 const uploadSuccess = ref(false)
+
+const conversionStatus = ref<'idle' | 'polling' | 'done' | 'failed'>('idle')
+const conversionMessage = ref('')
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+const POLL_INTERVAL_MS = 3000
+const POLL_MAX_MS = 10 * 60 * 1000 // 10 minutes
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+onUnmounted(stopPolling)
+
+async function pollUntilDone(modelId: string, deadline: number) {
+  if (Date.now() > deadline) {
+    conversionStatus.value = 'failed'
+    conversionMessage.value = 'Konvertierung hat zu lange gedauert. Bitte später prüfen.'
+    setTimeout(() => router.push('/dashboard'), 3000)
+    return
+  }
+
+  try {
+    const model = await modelsApi.getModel(modelId)
+    if (model.status === ModelStatus.Ready) {
+      conversionStatus.value = 'done'
+      conversionMessage.value = 'Konvertierung abgeschlossen!'
+      setTimeout(() => router.push('/dashboard'), 1500)
+    } else if (model.status === ModelStatus.Failed) {
+      conversionStatus.value = 'failed'
+      conversionMessage.value = 'Konvertierung fehlgeschlagen. Modell ist trotzdem gespeichert.'
+      setTimeout(() => router.push('/dashboard'), 3000)
+    } else {
+      // Still Uploaded or Processing — keep polling
+      conversionMessage.value =
+        model.status === ModelStatus.Processing
+          ? 'Konvertierung läuft...'
+          : 'Warte auf Konvertierung...'
+      pollTimer = setTimeout(() => pollUntilDone(modelId, deadline), POLL_INTERVAL_MS)
+    }
+  } catch {
+    // Transient network error — retry
+    pollTimer = setTimeout(() => pollUntilDone(modelId, deadline), POLL_INTERVAL_MS)
+  }
+}
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500 MB
 
@@ -75,7 +123,12 @@ async function upload() {
     await conversionsApi.createConversionJob(model.id, ConversionFormat.XKT)
 
     uploadSuccess.value = true
-    setTimeout(() => router.push('/dashboard'), 1500)
+    conversionStatus.value = 'polling'
+    conversionMessage.value = 'Warte auf Konvertierung...'
+    pollTimer = setTimeout(
+      () => pollUntilDone(model.id, Date.now() + POLL_MAX_MS),
+      POLL_INTERVAL_MS
+    )
   } catch (err: unknown) {
     const axiosError = err as { response?: { data?: { message?: string } } }
     error.value = axiosError.response?.data?.message ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.'
@@ -96,7 +149,24 @@ async function upload() {
     <div v-if="uploadSuccess" class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6 text-center">
       <CheckCircle class="w-12 h-12 text-green-500 mx-auto mb-3" />
       <p class="text-lg font-semibold text-green-700 dark:text-green-400">Upload erfolgreich!</p>
-      <p class="text-sm text-green-600 dark:text-green-500 mt-1">Hochgeladen — Konvertierung läuft im Hintergrund</p>
+
+      <!-- Polling indicator -->
+      <div v-if="conversionStatus === 'polling'" class="mt-4 flex items-center justify-center gap-2 text-blue-600 dark:text-blue-400">
+        <Loader2 class="w-5 h-5 animate-spin" />
+        <span class="text-sm">{{ conversionMessage }}</span>
+      </div>
+
+      <!-- Conversion done -->
+      <div v-else-if="conversionStatus === 'done'" class="mt-4 flex items-center justify-center gap-2 text-green-600 dark:text-green-400">
+        <CheckCircle class="w-5 h-5" />
+        <span class="text-sm">{{ conversionMessage }}</span>
+      </div>
+
+      <!-- Conversion failed -->
+      <div v-else-if="conversionStatus === 'failed'" class="mt-4 flex items-center justify-center gap-2 text-yellow-600 dark:text-yellow-400">
+        <AlertCircle class="w-5 h-5" />
+        <span class="text-sm">{{ conversionMessage }}</span>
+      </div>
     </div>
 
     <div v-else class="space-y-6">

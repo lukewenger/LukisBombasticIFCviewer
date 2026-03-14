@@ -15,6 +15,8 @@ public class ConversionWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ConversionWorker> _logger;
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
+    private const int MaxAttempts = 2;
 
     public ConversionWorker(IServiceScopeFactory scopeFactory, ILogger<ConversionWorker> logger)
     {
@@ -76,14 +78,13 @@ public class ConversionWorker : BackgroundService
                 var progress = new Progress<int>(pct =>
                 {
                     job.UpdateProgress(pct);
-                    // Fire-and-forget progress persist (best-effort, not awaited inside callback)
-                    _ = jobRepository.UpdateAsync(job, CancellationToken.None);
                 });
 
-                var xktPath = await conversionService.ConvertAsync(
+                var xktPath = await ConvertWithRetryAsync(
+                    conversionService,
                     model.OriginalFilePath,
-                    ConversionFormat.XKT,
                     progress,
+                    job.Id,
                     stoppingToken);
 
                 job.Complete(xktPath);
@@ -104,4 +105,40 @@ public class ConversionWorker : BackgroundService
             }
         }
     }
+
+    private async Task<string> ConvertWithRetryAsync(
+        IIfcConversionService conversionService,
+        string sourceFilePath,
+        IProgress<int> progress,
+        Guid jobId,
+        CancellationToken stoppingToken)
+    {
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            try
+            {
+                return await conversionService.ConvertAsync(
+                    sourceFilePath,
+                    ConversionFormat.XKT,
+                    progress,
+                    stoppingToken);
+            }
+            catch (Exception ex) when (attempt < MaxAttempts && IsTransient(ex))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Transient conversion failure for job {JobId} on attempt {Attempt}. Retrying in {DelayMs} ms.",
+                    jobId,
+                    attempt,
+                    RetryDelay.TotalMilliseconds);
+
+                await Task.Delay(RetryDelay, stoppingToken);
+            }
+        }
+
+        throw new InvalidOperationException($"Conversion for job {jobId} failed after {MaxAttempts} attempts.");
+    }
+
+    private static bool IsTransient(Exception ex)
+        => ex is TimeoutException || ex is IOException;
 }

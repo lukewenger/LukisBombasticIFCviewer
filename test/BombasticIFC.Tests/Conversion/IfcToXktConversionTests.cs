@@ -11,8 +11,8 @@ namespace BombasticIFC.Tests.Conversion;
 
 /// <summary>
 /// Tests for the IFC-to-XKT conversion pipeline using the three sample IFC files
-/// located in test/Sample/. Since no production converter is wired up yet,
-/// IIfcConversionService is mocked; these tests verify that:
+/// located in test/Sample/. The production converter is wired in the API,
+/// while this unit test suite intentionally mocks IIfcConversionService; these tests verify that:
 ///   - the sample files are present and valid IFC content,
 ///   - the command handler passes the correct file paths through,
 ///   - ConversionJob state transitions work end-to-end for each file.

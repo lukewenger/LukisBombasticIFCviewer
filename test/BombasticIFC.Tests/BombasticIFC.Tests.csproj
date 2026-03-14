@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BombasticIFC.Application\BombasticIFC.Application.csproj" />
     <ProjectReference Include="..\..\src\BombasticIFC.Domain\BombasticIFC.Domain.csproj" />
+    <ProjectReference Include="..\..\src\BombasticIFC.Infrastructure\BombasticIFC.Infrastructure.csproj" />
   </ItemGroup>
 
   <!-- Copy IFC sample files to output so tests can reference them by path -->
