@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { LayoutDashboard, Eye, Upload, RefreshCw, Box, List, Trash2 } from 'lucide-vue-next'
 import { modelsApi } from '../api/models'
 import { conversionsApi } from '../api/conversions'
+import XeokitPointViewer from '../components/XeokitPointViewer.vue'
 import type { IfcModelDto } from '../types'
 import { ConversionFormat, ModelStatus } from '../types/models'
-
-const DUPLEX_DEMO_URL = '/samples/Duplex.xkt'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -83,235 +82,22 @@ function stopPolling() {
 }
 
 // --- Viewer state ---
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-const viewerLoading = ref(false)
-const viewerError = ref<string | null>(null)
 const viewerModelName = ref('Duplex (Demo)')
-const selectedEntityId = ref<string | null>(null)
-const selectedAttributes = ref<Record<string, string>>({})
-interface PickedPoint {
-  id: number
-  x: number
-  y: number
-  z: number
-  entityId: string | null
-  pickedAt: string
-}
-
-const pickedPoints = ref<PickedPoint[]>([])
-let pickedPointId = 0
-const pointPickingMode = ref(false)
+const viewerSrc = ref<string | null>(null)
 const selectedViewerModelId = ref<string | null>(null)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let viewer: any = null
-let viewerInitialized = false
 
-function clearPickedPoints() {
-  pickedPoints.value = []
-}
-
-function setPointPickingMode(enabled: boolean) {
-  pointPickingMode.value = enabled
-  if (viewer?.cameraControl) {
-    viewer.cameraControl.active = !enabled
-  }
-  if (enabled) {
-    clearSelection()
-  }
-}
-
-function handleGlobalKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && pointPickingMode.value) {
-    setPointPickingMode(false)
-  }
-}
-
-function addPickedPoint(pickResult: any) {
-  const worldPos = pickResult?.worldPos
-  if (!worldPos || worldPos.length < 3) {
-    return
-  }
-
-  pickedPoints.value.push({
-    id: ++pickedPointId,
-    x: Number(worldPos[0]),
-    y: Number(worldPos[1]),
-    z: Number(worldPos[2]),
-    entityId: pickResult?.entity ? String(pickResult.entity.id) : null,
-    pickedAt: new Date().toISOString(),
-  })
-}
-
-function toCsvValue(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`
-}
-
-function downloadPickedPointsCsv() {
-  if (pickedPoints.value.length === 0) {
-    return
-  }
-
-  const headers = ['index', 'x', 'y', 'z', 'entityId', 'pickedAt']
-  const rows = pickedPoints.value.map((point, index) => [
-    String(index + 1),
-    point.x.toFixed(6),
-    point.y.toFixed(6),
-    point.z.toFixed(6),
-    point.entityId ?? '',
-    point.pickedAt,
-  ])
-
-  const csv = [
-    headers.join(','),
-    ...rows.map((row) => row.map(toCsvValue).join(',')),
-  ].join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = window.URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `picked-points-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  window.URL.revokeObjectURL(url)
-}
-
-function clearSelection() {
-  if (!viewer || !selectedEntityId.value) {
-    selectedEntityId.value = null
-    selectedAttributes.value = {}
-    return
-  }
-
-  const oldEntity = viewer.scene?.objects?.[selectedEntityId.value]
-  if (oldEntity) {
-    oldEntity.highlighted = false
-  }
-
-  selectedEntityId.value = null
-  selectedAttributes.value = {}
-}
-
-function setSelectedEntity(entity: any) {
-  const entityId = String(entity.id)
-
-  if (selectedEntityId.value) {
-    const oldEntity = viewer.scene?.objects?.[selectedEntityId.value]
-    if (oldEntity) {
-      oldEntity.highlighted = false
-    }
-  }
-
-  entity.highlighted = true
-  selectedEntityId.value = entityId
-
-  const metaObject = viewer.metaScene?.metaObjects?.[entityId]
-  const attributes: Record<string, string> = {
-    'GlobalId': entityId,
-    'IFC-Typ': metaObject?.type ?? '-',
-    'Name': metaObject?.name ?? '-',
-  }
-
-  const parentName = metaObject?.parent?.name
-  if (parentName) {
-    attributes.Parent = String(parentName)
-  }
-
-  const propertySets = metaObject?.propertySets ?? []
-  for (const propertySet of propertySets) {
-    for (const property of propertySet.properties ?? []) {
-      const key = property.name ? String(property.name) : 'Property'
-      attributes[key] = property.value != null ? String(property.value) : '-'
-    }
-  }
-
-  selectedAttributes.value = attributes
-}
-
-async function initViewer(src?: string, modelName?: string) {
-  if (!canvasRef.value) return
-
-  viewerLoading.value = true
-  viewerError.value = null
-  viewerModelName.value = modelName ?? 'Duplex (Demo)'
-  clearSelection()
-  clearPickedPoints()
-  setPointPickingMode(false)
-
-  try {
-    // Destroy previous viewer if exists
-    if (viewer) {
-      viewer.destroy()
-      viewer = null
-      viewerInitialized = false
-    }
-
-    const { Viewer, XKTLoaderPlugin } = await import('@xeokit/xeokit-sdk')
-
-    viewer = new Viewer({
-      canvasElement: canvasRef.value,
-      transparent: true,
-    })
-
-    viewer.camera.eye = [-3.93, 2.85, 27.01]
-    viewer.camera.look = [4.40, 3.72, 8.89]
-    viewer.camera.up = [-0.01, 0.99, 0.03]
-
-    const xktLoader = new XKTLoaderPlugin(viewer)
-
-    const loadUrl = src ?? DUPLEX_DEMO_URL
-
-    const sceneModel = xktLoader.load({
-      id: 'model',
-      src: loadUrl,
-      edges: true,
-    })
-
-    viewer.scene.input.on('mouseclicked', (coords: number[]) => {
-      const pickResult = viewer.scene.pick({
-        canvasPos: coords,
-        pickSurface: pointPickingMode.value,
-      })
-
-      if (pointPickingMode.value) {
-        addPickedPoint(pickResult)
-      } else {
-        if (pickResult?.entity) {
-          setSelectedEntity(pickResult.entity)
-        } else {
-          clearSelection()
-        }
-      }
-    })
-
-    sceneModel.on('loaded', () => {
-      viewer.cameraFlight.flyTo(sceneModel)
-      viewerLoading.value = false
-      viewerInitialized = true
-    })
-
-    sceneModel.on('error', () => {
-      if (src) {
-        // Fallback to demo on error
-        viewerModelName.value = 'Duplex (Demo)'
-        xktLoader.load({ id: 'demo-fallback', src: DUPLEX_DEMO_URL, edges: true })
-      }
-      viewerLoading.value = false
-    })
-  } catch {
-    viewerError.value = 'xeokit-Viewer konnte nicht geladen werden.'
-    viewerLoading.value = false
-  }
+function loadDemoInViewer() {
+  selectedViewerModelId.value = null
+  viewerSrc.value = null
+  viewerModelName.value = 'Duplex (Demo)'
 }
 
 function openModelInViewer(model: IfcModelDto) {
-  selectedViewerModelId.value = model.id
   if (!model.xktOutputUrl) return
+  selectedViewerModelId.value = model.id
+  viewerSrc.value = model.xktOutputUrl
+  viewerModelName.value = model.fileName
   activeTab.value = 'viewer'
-  nextTick(() => {
-    initViewer(model.xktOutputUrl!, model.fileName)
-  })
 }
 
 async function deleteModel(model: IfcModelDto) {
@@ -325,9 +111,8 @@ async function deleteModel(model: IfcModelDto) {
     showToast(`Modell "${model.fileName}" wurde geloescht.`, 'success')
 
     if (selectedViewerModelId.value === model.id) {
-      selectedViewerModelId.value = null
+      loadDemoInViewer()
       activeTab.value = 'models'
-      nextTick(() => initViewer())
     }
   } catch {
     error.value = 'Modell konnte nicht geloescht werden.'
@@ -352,15 +137,7 @@ async function retryConversion(model: IfcModelDto) {
   }
 }
 
-// When switching to viewer tab, init with demo if not yet initialized
-watch(activeTab, (tab) => {
-  if (tab === 'viewer' && !viewerInitialized) {
-    nextTick(() => initViewer())
-  }
-})
-
 onMounted(async () => {
-  window.addEventListener('keydown', handleGlobalKeydown)
   isLoading.value = true
   await fetchModels()
   isLoading.value = false
@@ -368,17 +145,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleGlobalKeydown)
   stopPolling()
   for (const timer of toastTimers.values()) {
     clearTimeout(timer)
   }
   toastTimers.clear()
-  clearSelection()
-  if (viewer) {
-    viewer.destroy()
-    viewer = null
-  }
 })
 
 function statusLabel(status: ModelStatus): string {
@@ -611,98 +382,13 @@ function formatDate(dateStr: string): string {
         <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ viewerModelName }}</span>
         <button
           class="ml-auto text-xs text-blue-600 hover:underline"
-          @click="initViewer()"
+          @click="loadDemoInViewer"
         >
           Demo laden
         </button>
       </div>
 
-      <!-- Loading overlay -->
-      <div v-if="viewerLoading" class="h-[60vh] flex items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <div class="text-center">
-          <div class="animate-spin h-10 w-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p class="text-gray-500 dark:text-gray-400">Modell wird geladen...</p>
-        </div>
-      </div>
-
-      <!-- Error -->
-      <div v-if="viewerError" class="h-[60vh] flex items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <p class="text-red-700 dark:text-red-400">{{ viewerError }}</p>
-      </div>
-
-      <div class="relative">
-        <!-- Canvas (always rendered so ref is available) -->
-        <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : 'h-[60vh]'"></canvas>
-
-        <div
-          class="absolute top-4 left-4 w-80 max-h-[80%] overflow-y-auto bg-white/95 dark:bg-gray-800/95 rounded-xl shadow-xl p-4 z-10 border border-gray-200 dark:border-gray-700"
-        >
-          <div class="flex items-center justify-between mb-3 gap-2">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Point Picker</h3>
-            <div class="flex items-center gap-2">
-              <button
-                class="text-xs px-2 py-1 rounded border transition-colors"
-                :class="pointPickingMode
-                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
-                @click="setPointPickingMode(!pointPickingMode)"
-              >
-                {{ pointPickingMode ? 'Picking aktiv' : 'Picking starten' }}
-              </button>
-              <button
-                class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                :disabled="pickedPoints.length === 0"
-                @click="downloadPickedPointsCsv"
-              >
-                CSV
-              </button>
-              <button
-                class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                :disabled="pickedPoints.length === 0"
-                @click="clearPickedPoints"
-              >
-                Leeren
-              </button>
-            </div>
-          </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ pointPickingMode
-              ? 'Picking-Modus aktiv: Kamera-Navigation ist deaktiviert, Klick speichert Punkte.'
-              : 'Picking-Modus starten, um Punkte im Modell zu erfassen.' }}
-          </p>
-          <div v-if="pickedPoints.length === 0" class="text-xs text-gray-500 dark:text-gray-400">
-            Noch keine Punkte gespeichert.
-          </div>
-          <ol v-else class="space-y-2 text-xs">
-            <li
-              v-for="(point, index) in pickedPoints"
-              :key="point.id"
-              class="rounded-lg border border-gray-200 dark:border-gray-700 p-2"
-            >
-              <p class="font-medium text-gray-900 dark:text-white">#{{ index + 1 }}</p>
-              <p class="text-gray-700 dark:text-gray-300">x: {{ point.x.toFixed(3) }}</p>
-              <p class="text-gray-700 dark:text-gray-300">y: {{ point.y.toFixed(3) }}</p>
-              <p class="text-gray-700 dark:text-gray-300">z: {{ point.z.toFixed(3) }}</p>
-            </li>
-          </ol>
-        </div>
-
-        <div
-          v-if="selectedEntityId"
-          class="absolute top-4 right-4 w-80 max-h-[80%] overflow-y-auto bg-white/95 dark:bg-gray-800/95 rounded-xl shadow-xl p-4 z-10 border border-gray-200 dark:border-gray-700"
-        >
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">IFC-Attribute</h3>
-            <button class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="clearSelection">X</button>
-          </div>
-          <dl class="space-y-2 text-xs">
-            <div v-for="(value, key) in selectedAttributes" :key="key">
-              <dt class="text-gray-500 dark:text-gray-400">{{ key }}</dt>
-              <dd class="text-gray-900 dark:text-white font-medium break-all">{{ value }}</dd>
-            </div>
-          </dl>
-        </div>
-      </div>
+      <XeokitPointViewer :model-src="viewerSrc" canvas-height-class="h-[60vh]" />
     </div>
   </div>
 </template>
