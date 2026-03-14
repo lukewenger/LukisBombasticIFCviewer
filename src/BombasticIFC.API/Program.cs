@@ -38,6 +38,11 @@ var storagePath = builder.Configuration.GetValue<string>("StoragePath") ?? "/dat
 builder.Services.AddSingleton<IFileStorageService>(new FileStorageService(storagePath));
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPasswordHasherService, PasswordHasherService>();
+builder.Services.AddScoped<IIfcConversionService>(provider =>
+    new IfcConversionService(
+        storagePath,
+        provider.GetRequiredService<ILogger<IfcConversionService>>()));
+builder.Services.AddHostedService<ConversionWorker>();
 
 // Add JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");

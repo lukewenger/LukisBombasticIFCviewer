@@ -212,9 +212,10 @@ async function initViewer(src?: string, modelName?: string) {
 
 function openModelInViewer(model: IfcModelDto) {
   selectedViewerModelId.value = model.id
+  if (!model.xktOutputUrl) return
   activeTab.value = 'viewer'
   nextTick(() => {
-    initViewer(modelsApi.getModelOutputUrl(model.id), model.fileName)
+    initViewer(model.xktOutputUrl!, model.fileName)
   })
 }
 

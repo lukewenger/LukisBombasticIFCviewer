@@ -7,6 +7,11 @@ metadata:
     app: bombasticifccluster-api
 spec:
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: bombasticifccluster-api
@@ -15,6 +20,7 @@ spec:
       labels:
         app: bombasticifccluster-api
     spec:
+      terminationGracePeriodSeconds: 120
       containers:
       - name: api
         image: bombasticifccluster-api:latest
@@ -41,11 +47,11 @@ spec:
           mountPath: /data/storage
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
             memory: "512Mi"
             cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
         livenessProbe:
           httpGet:
             path: /health
@@ -57,6 +63,12 @@ spec:
             path: /health
             port: 8080
           initialDelaySeconds: 10
+          periodSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          failureThreshold: 30
           periodSeconds: 5
       volumes:
       - name: storage-volume
