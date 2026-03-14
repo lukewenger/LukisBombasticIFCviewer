@@ -20,8 +20,92 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const selectedEntityId = ref<string | null>(null)
 const selectedAttributes = ref<Record<string, string>>({})
 
+interface PickedPoint {
+  id: number
+  x: number
+  y: number
+  z: number
+  entityId: string | null
+  pickedAt: string
+}
+
+const pickedPoints = ref<PickedPoint[]>([])
+let pickedPointId = 0
+const pointPickingMode = ref(false)
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let viewer: any = null
+
+function clearPickedPoints() {
+  pickedPoints.value = []
+}
+
+function setPointPickingMode(enabled: boolean) {
+  pointPickingMode.value = enabled
+  if (viewer?.cameraControl) {
+    viewer.cameraControl.active = !enabled
+  }
+  if (enabled) {
+    clearSelection()
+  }
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && pointPickingMode.value) {
+    setPointPickingMode(false)
+  }
+}
+
+function addPickedPoint(pickResult: any) {
+  const worldPos = pickResult?.worldPos
+  if (!worldPos || worldPos.length < 3) {
+    return
+  }
+
+  pickedPoints.value.push({
+    id: ++pickedPointId,
+    x: Number(worldPos[0]),
+    y: Number(worldPos[1]),
+    z: Number(worldPos[2]),
+    entityId: pickResult?.entity ? String(pickResult.entity.id) : null,
+    pickedAt: new Date().toISOString(),
+  })
+}
+
+function toCsvValue(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+function downloadPickedPointsCsv() {
+  if (pickedPoints.value.length === 0) {
+    return
+  }
+
+  const headers = ['index', 'x', 'y', 'z', 'entityId', 'pickedAt']
+  const rows = pickedPoints.value.map((point, index) => [
+    String(index + 1),
+    point.x.toFixed(6),
+    point.y.toFixed(6),
+    point.z.toFixed(6),
+    point.entityId ?? '',
+    point.pickedAt,
+  ])
+
+  const csv = [
+    headers.join(','),
+    ...rows.map((row) => row.map(toCsvValue).join(',')),
+  ].join('\n')
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `picked-points-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.URL.revokeObjectURL(url)
+}
 
 function clearSelection() {
   if (!viewer || !selectedEntityId.value) {
@@ -78,6 +162,8 @@ function setSelectedEntity(entity: any) {
 async function initViewer() {
   if (!canvasRef.value) return
   clearSelection()
+  clearPickedPoints()
+  setPointPickingMode(false)
 
   try {
     // Dynamic import to avoid SSR/build issues with xeokit
@@ -112,9 +198,19 @@ async function initViewer() {
     })
 
     viewer.scene.input.on('mouseclicked', (coords: number[]) => {
-      const pickResult = viewer.scene.pick({ canvasPos: coords })
-      if (pickResult?.entity) {
-        setSelectedEntity(pickResult.entity)
+      const pickResult = viewer.scene.pick({
+        canvasPos: coords,
+        pickSurface: pointPickingMode.value,
+      })
+
+      if (pointPickingMode.value) {
+        addPickedPoint(pickResult)
+      } else {
+        if (pickResult?.entity) {
+          setSelectedEntity(pickResult.entity)
+        } else {
+          clearSelection()
+        }
       }
     })
 
@@ -139,6 +235,7 @@ async function initViewer() {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleGlobalKeydown)
   isLoading.value = true
   try {
     model.value = await modelsApi.getModel(modelId)
@@ -150,6 +247,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
   clearSelection()
   if (viewer) {
     viewer.destroy()
@@ -201,6 +299,59 @@ onUnmounted(() => {
     <!-- Canvas -->
     <div v-show="!isLoading && !error" class="flex-1 relative bg-gray-100 dark:bg-gray-900">
       <canvas ref="canvasRef" class="w-full h-full block"></canvas>
+
+      <div
+        class="absolute top-4 left-4 w-80 max-h-[80%] overflow-y-auto bg-white/95 dark:bg-gray-800/95 rounded-xl shadow-xl p-4 z-10 border border-gray-200 dark:border-gray-700"
+      >
+        <div class="flex items-center justify-between mb-3 gap-2">
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Point Picker</h3>
+          <div class="flex items-center gap-2">
+            <button
+              class="text-xs px-2 py-1 rounded border transition-colors"
+              :class="pointPickingMode
+                ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+              @click="setPointPickingMode(!pointPickingMode)"
+            >
+              {{ pointPickingMode ? 'Picking aktiv' : 'Picking starten' }}
+            </button>
+            <button
+              class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              :disabled="pickedPoints.length === 0"
+              @click="downloadPickedPointsCsv"
+            >
+              CSV
+            </button>
+            <button
+              class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              :disabled="pickedPoints.length === 0"
+              @click="clearPickedPoints"
+            >
+              Leeren
+            </button>
+          </div>
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          {{ pointPickingMode
+            ? 'Picking-Modus aktiv: Kamera-Navigation ist deaktiviert, Klick speichert Punkte.'
+            : 'Picking-Modus starten, um Punkte im Modell zu erfassen.' }}
+        </p>
+        <div v-if="pickedPoints.length === 0" class="text-xs text-gray-500 dark:text-gray-400">
+          Noch keine Punkte gespeichert.
+        </div>
+        <ol v-else class="space-y-2 text-xs">
+          <li
+            v-for="(point, index) in pickedPoints"
+            :key="point.id"
+            class="rounded-lg border border-gray-200 dark:border-gray-700 p-2"
+          >
+            <p class="font-medium text-gray-900 dark:text-white">#{{ index + 1 }}</p>
+            <p class="text-gray-700 dark:text-gray-300">x: {{ point.x.toFixed(3) }}</p>
+            <p class="text-gray-700 dark:text-gray-300">y: {{ point.y.toFixed(3) }}</p>
+            <p class="text-gray-700 dark:text-gray-300">z: {{ point.z.toFixed(3) }}</p>
+          </li>
+        </ol>
+      </div>
 
       <div
         v-if="selectedEntityId"
