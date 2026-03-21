@@ -50,6 +50,28 @@ let pointCloudGeometry: any = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let pointCloudMaterial: any = null
 
+async function isModelOutputReachable(url: string): Promise<boolean> {
+  try {
+    const headResponse = await fetch(url, { method: 'HEAD' })
+    if (headResponse.ok) {
+      return true
+    }
+
+    // Some servers may not support HEAD for file routes.
+    if (headResponse.status === 405) {
+      const rangeResponse = await fetch(url, {
+        method: 'GET',
+        headers: { Range: 'bytes=0-0' },
+      })
+      return rangeResponse.ok || rangeResponse.status === 206
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
 function destroyPointCloud() {
   pointCloudMesh?.destroy?.()
   pointCloudMesh = null
@@ -386,7 +408,14 @@ async function initializeViewer() {
 
     xktLoader = new XKTLoaderPlugin(viewer)
 
-    const loadUrl = props.modelSrc ?? props.fallbackSrc
+    let loadUrl = props.modelSrc ?? props.fallbackSrc
+    if (props.modelSrc) {
+      const isReachable = await isModelOutputReachable(props.modelSrc)
+      if (!isReachable) {
+        viewerError.value = 'Konvertierte Datei nicht gefunden (404). Demo-Modell wird angezeigt.'
+        loadUrl = props.fallbackSrc
+      }
+    }
 
     const sceneModel = xktLoader.load({
       id: 'model',
@@ -419,6 +448,7 @@ async function initializeViewer() {
 
     sceneModel.on('error', () => {
       if (props.modelSrc) {
+        viewerError.value = 'Modell konnte nicht geladen werden. Demo-Modell wird angezeigt.'
         xktLoader.load({ id: 'demo-fallback', src: props.fallbackSrc, edges: true })
       }
       viewerLoading.value = false

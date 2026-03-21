@@ -10,9 +10,4 @@ export const conversionsApi = {
     })
     return response.data
   },
-
-  async getConversionJob(id: string): Promise<ConversionJobDto> {
-    const response = await api.get<ConversionJobDto>(`/conversions/${id}`)
-    return response.data
-  },
 }
