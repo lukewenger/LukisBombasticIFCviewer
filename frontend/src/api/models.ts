@@ -30,8 +30,4 @@ export const modelsApi = {
   async deleteModel(id: string): Promise<void> {
     await api.delete(`/models/${id}`)
   },
-
-  getModelOutputUrl(id: string): string {
-    return `/api/models/${id}/output`
-  },
 }

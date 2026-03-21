@@ -22,7 +22,7 @@ onMounted(async () => {
   try {
     model.value = await modelsApi.getModel(modelId)
   } catch {
-    // If the model cannot be loaded we still show the demo model in the shared viewer.
+    // If model details cannot be loaded we still render the fallback demo in the viewer component.
   } finally {
     isLoading.value = false
   }
@@ -30,37 +30,35 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-[calc(100vh-4rem)]">
-    <div class="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+  <div class="max-w-7xl mx-auto px-4 py-6">
+    <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
         <button
           class="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           @click="router.push('/dashboard')"
-          title="Zurück"
+          title="Zurueck zum Dashboard"
         >
           <ArrowLeft class="w-5 h-5" />
         </button>
-        <Box class="w-5 h-5 text-blue-600" />
+        <Box class="w-6 h-6 text-blue-600" />
         <div>
-          <h1 class="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-md">
-            {{ viewerModelName }}
-          </h1>
+          <h1 class="text-xl font-semibold text-gray-900 dark:text-white">{{ viewerModelName }}</h1>
           <p v-if="usingDemo" class="text-xs text-yellow-600 dark:text-yellow-400">
-            Demo-Modell (Duplex) — Konvertierung ausstehend
+            Demo-Modell (Duplex) wird angezeigt, da keine XKT-Ausgabe verfuegbar ist.
           </p>
         </div>
       </div>
     </div>
 
-    <div v-if="isLoading" class="flex-1 flex items-center justify-center bg-gray-100 dark:bg-gray-900">
+    <div v-if="isLoading" class="flex items-center justify-center rounded-xl bg-white dark:bg-gray-800 h-[70vh]">
       <div class="text-center">
         <div class="animate-spin h-10 w-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
         <p class="text-gray-500 dark:text-gray-400">Modell wird geladen...</p>
       </div>
     </div>
 
-    <div v-else class="flex-1">
-      <XeokitPointViewer :model-src="viewerSrc" canvas-height-class="h-full" />
+    <div v-else class="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900">
+      <XeokitPointViewer :model-src="viewerSrc" canvas-height-class="h-[72vh]" />
     </div>
   </div>
 </template>

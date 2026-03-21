@@ -115,6 +115,12 @@ public class ModelsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetModelOutput(Guid id)
     {
+        var model = await _modelRepository.GetByIdAsync(id);
+        if (model == null)
+        {
+            return NotFound(new { message = "Model not found" });
+        }
+
         var jobs = await _conversionJobRepository.GetByModelIdAsync(id);
         var completedJob = jobs
             .Where(j => j.Status == Domain.Enums.ConversionStatus.Completed && j.OutputFilePath != null)
