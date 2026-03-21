@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { LayoutDashboard, Upload, RefreshCw, Box, List } from 'lucide-vue-next'
-import { modelsApi } from '../api/models'
 import type { IfcModelDto } from '../types'
 import { useToasts } from '../composables/useToasts'
 import { useModelPolling } from '../composables/useModelPolling'
@@ -158,15 +157,6 @@ async function initViewer(src?: string, modelName?: string) {
     viewerError.value = 'xeokit-Viewer konnte nicht geladen werden.'
     viewerLoading.value = false
   }
-}
-
-function openModelInViewer(model: IfcModelDto) {
-  selectedViewerModelId.value = model.id
-  if (!model.xktOutputUrl) return
-  activeTab.value = 'viewer'
-  nextTick(() => {
-    initViewer(model.xktOutputUrl!, model.fileName)
-  })
 }
 
 function openModelInViewer(model: IfcModelDto) {

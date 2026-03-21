@@ -1,4 +1,5 @@
-import { ref, computed, Ref } from 'vue'
+import { computed } from 'vue'
+import type { Ref } from 'vue'
 import { modelsApi } from '../api/models'
 import type { IfcModelDto } from '../types'
 import { ModelStatus } from '../types/models'
