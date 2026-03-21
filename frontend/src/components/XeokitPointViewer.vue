@@ -21,6 +21,30 @@ const props = withDefaults(
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const csvInputRef = ref<HTMLInputElement | null>(null)
+const viewerRootRef = ref<HTMLDivElement | null>(null)
+
+function isWheelInsideRect(event: WheelEvent, rect: DOMRect): boolean {
+  return event.clientX >= rect.left &&
+    event.clientX <= rect.right &&
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom
+}
+
+function handleViewerWheel(event: WheelEvent) {
+  if (!canvasRef.value) {
+    return
+  }
+
+  const target = event.target as HTMLElement | null
+  if (target?.closest('[data-wheel-scroll-panel="true"]')) {
+    return
+  }
+
+  const canvasRect = canvasRef.value.getBoundingClientRect()
+  if (isWheelInsideRect(event, canvasRect)) {
+    event.preventDefault()
+  }
+}
 
 const {
   viewerLoading,
@@ -120,11 +144,16 @@ async function bootViewer() {
 
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
+  viewerRootRef.value?.addEventListener('wheel', handleViewerWheel, {
+    passive: false,
+    capture: true,
+  })
   bootViewer()
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  viewerRootRef.value?.removeEventListener('wheel', handleViewerWheel, true)
   destroyPointCloud()
   destroyViewer()
 })
@@ -143,7 +172,7 @@ watch(pointTransparency, () => {
 </script>
 
 <template>
-  <div class="relative bg-gray-100 dark:bg-gray-900">
+  <div ref="viewerRootRef" class="relative bg-gray-100 dark:bg-gray-900">
     <div v-if="viewerLoading" :class="[props.canvasHeightClass, 'flex items-center justify-center bg-gray-100 dark:bg-gray-900']">
       <div class="text-center">
         <div class="animate-spin h-10 w-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -157,18 +186,20 @@ watch(pointTransparency, () => {
 
     <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : props.canvasHeightClass"></canvas>
 
-    <PointPickerPanel
-      :point-picking-mode="pointPickingMode"
-      :picked-points="pickedPoints"
-      :point-radius="pointRadius"
-      :point-transparency="pointTransparency"
-      @toggle-picking="togglePicking"
-      @open-csv="openCsvPicker"
-      @export-csv="exportCsv"
-      @clear-points="clearPickedPoints"
-      @update:point-radius="pointRadius = $event"
-      @update:point-transparency="pointTransparency = $event"
-    />
+    <div data-wheel-scroll-panel="true">
+      <PointPickerPanel
+        :point-picking-mode="pointPickingMode"
+        :picked-points="pickedPoints"
+        :point-radius="pointRadius"
+        :point-transparency="pointTransparency"
+        @toggle-picking="togglePicking"
+        @open-csv="openCsvPicker"
+        @export-csv="exportCsv"
+        @clear-points="clearPickedPoints"
+        @update:point-radius="pointRadius = $event"
+        @update:point-transparency="pointTransparency = $event"
+      />
+    </div>
 
     <input
       ref="csvInputRef"
@@ -178,10 +209,12 @@ watch(pointTransparency, () => {
       @change="onCsvInputChange"
     >
 
-    <EntityAttributesPanel
-      :selected-entity-id="selectedEntityId"
-      :selected-attributes="selectedAttributes"
-      @clear-selection="clearSelection"
-    />
+    <div data-wheel-scroll-panel="true">
+      <EntityAttributesPanel
+        :selected-entity-id="selectedEntityId"
+        :selected-attributes="selectedAttributes"
+        @clear-selection="clearSelection"
+      />
+    </div>
   </div>
 </template>
