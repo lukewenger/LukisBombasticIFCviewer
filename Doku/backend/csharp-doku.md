@@ -3,8 +3,7 @@
 **Version:** 1.0  
 **Framework:** .NET 8.0  
 **Architecture:** Clean Architecture with CQRS  
-**Database:** PostgreSQL  
-**Last Updated:** March 7, 2026
+**Database:** PostgreSQL
 
 ---
 
@@ -66,7 +65,7 @@ The project follows **Clean Architecture** (also known as Onion Architecture) wi
 │      Application Layer (Use Cases/CQRS)         │
 │         ↓ depends on ↓                          │
 ├─────────────────────────────────────────────────┤
-│       Domain Layer (Business Logic)             │ ← Core (No Dependencies)
+│       Domain Layer (Business Logic)             │
 │         ↑ implemented by ↑                      │
 ├─────────────────────────────────────────────────┤
 │   Infrastructure Layer (External Concerns)      │
@@ -1671,5 +1670,4 @@ dotnet run --project BombasticIFC.API
 ---
 
 **Document Version:** 1.0  
-**Last Updated:** March 7, 2026  
 **Maintained by:** BombasticIFC Development Team

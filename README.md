@@ -273,6 +273,17 @@ minikube dashboard
 
 ## Weiterführende Dokumentation
 
+### Architecture & Design
+
+- **Backend Architecture:** [`Doku/backend/csharp-doku.md`](Doku/backend/csharp-doku.md) — Clean Architecture, CQRS, Domain Layer
+- **Backend Architecture Diagram:** [`Doku/backend/csharp-architecture.puml`](Doku/backend/csharp-architecture.puml)
+- **Frontend Architecture:** [`Doku/frontend/FrontendArchitecture.md`](Doku/frontend/FrontendArchitecture.md) — Vue 3, Composables, Pinia
+- **Frontend Architecture Diagram:** [`Doku/frontend/frontendArchitecture.puml`](Doku/frontend/frontendArchitecture.puml)
+- **Cluster Architecture:** [`Doku/Cluster/CLUSTER-DOKUMENTATION.md`](Doku/Cluster/CLUSTER-DOKUMENTATION.md) — Kubernetes, Deployments, Networking
+- **Cluster Architecture Diagram:** [`Doku/Cluster/architecture.puml`](Doku/Cluster/architecture.puml)
+
+### Additional Resources
+
 - **Cluster-Dokumentation (vollständig):** [`kubernetes/CLUSTER-DOKUMENTATION.md`](kubernetes/CLUSTER-DOKUMENTATION.md)
 - **Architekturdiagramm (PlantUML):** [`kubernetes/architecture.puml`](kubernetes/architecture.puml)
 - **Frontend-Aufgaben:** [`frontend/TasksVueFrontend.md`](frontend/TasksVueFrontend.md)
