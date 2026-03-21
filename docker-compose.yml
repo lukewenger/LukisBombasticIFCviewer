@@ -6,7 +6,7 @@ services:
     container_name: bombasticifcluster-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: 05W4V1KEUHpeQQrnfme9iizbyR+rO3II
       POSTGRES_DB: bombasticifcdb
     ports:
       - "5432:5432"
@@ -27,7 +27,7 @@ services:
     container_name: bombasticifcluster-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=05W4V1KEUHpeQQrnfme9iizbyR+rO3II
       - StoragePath=/data/storage
     ports:
       - "5000:80"

@@ -1,5 +1,7 @@
+using BombasticIFC.Application.Common.Interfaces;
 using BombasticIFC.Application.DTOs;
 using BombasticIFC.Application.UseCases.Models;
+using BombasticIFC.Domain.Repositories;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,11 +16,35 @@ public class ModelsController : ControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<ModelsController> _logger;
+    private readonly IConversionJobRepository _conversionJobRepository;
+    private readonly IFileStorageService _fileStorageService;
 
-    public ModelsController(IMediator mediator, ILogger<ModelsController> logger)
+    private readonly IIfcModelRepository _modelRepository;
+
+    public ModelsController(
+        IMediator mediator,
+        ILogger<ModelsController> logger,
+        IConversionJobRepository conversionJobRepository,
+        IFileStorageService fileStorageService,
+        IIfcModelRepository modelRepository)
     {
         _mediator = mediator;
         _logger = logger;
+        _conversionJobRepository = conversionJobRepository;
+        _fileStorageService = fileStorageService;
+        _modelRepository = modelRepository;
+    }
+
+    /// <summary>
+    /// Get all models
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(List<IfcModelDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<IfcModelDto>>> GetModels()
+    {
+        var query = new GetModelsQuery();
+        var result = await _mediator.Send(query);
+        return Ok(result);
     }
 
     /// <summary>
@@ -59,5 +85,74 @@ public class ModelsController : ControllerBase
             return NotFound();
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Get the original IFC source file for a model
+    /// </summary>
+    [HttpGet("{id}/original")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetModelOriginal(Guid id)
+    {
+        var model = await _modelRepository.GetByIdAsync(id);
+        if (model == null)
+            return NotFound(new { message = "Model not found" });
+
+        if (!await _fileStorageService.FileExistsAsync(model.OriginalFilePath))
+            return NotFound(new { message = "Original file not found on disk" });
+
+        var stream = await _fileStorageService.GetFileAsync(model.OriginalFilePath);
+        var fileName = Path.GetFileName(model.OriginalFilePath);
+        return File(stream, "application/octet-stream", fileName);
+    }
+
+    /// <summary>
+    /// Get the converted XKT output file for a model
+    /// </summary>
+    [HttpGet("{id}/output")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetModelOutput(Guid id)
+    {
+        var jobs = await _conversionJobRepository.GetByModelIdAsync(id);
+        var completedJob = jobs
+            .Where(j => j.Status == Domain.Enums.ConversionStatus.Completed && j.OutputFilePath != null)
+            .OrderByDescending(j => j.CompletedAt)
+            .FirstOrDefault();
+
+        if (completedJob?.OutputFilePath == null)
+        {
+            return NotFound(new { message = "No converted output available for this model" });
+        }
+
+        if (!await _fileStorageService.FileExistsAsync(completedJob.OutputFilePath))
+        {
+            Response.ContentType = "application/json";
+            return NotFound(new { message = "Output file not found on disk" });
+        }
+
+        var stream = await _fileStorageService.GetFileAsync(completedJob.OutputFilePath);
+        var fileName = $"{id}.xkt";
+        return File(stream, "application/octet-stream", fileName);
+    }
+
+    /// <summary>
+    /// Delete a model by ID
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteModel(Guid id)
+    {
+        try
+        {
+            await _mediator.Send(new DeleteModelCommand(id));
+            return NoContent();
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
     }
 }
