@@ -1,1 +1,0 @@
-import{N as n}from"./index-DbEby3tY.js";import{C as e}from"./models-lZGajjl1.js";const i={async createConversionJob(o,s=e.XKT){return(await n.post("/conversions",{modelId:o,targetFormat:s})).data},async getConversionJob(o){return(await n.get(`/conversions/${o}`)).data}};export{i as c};
