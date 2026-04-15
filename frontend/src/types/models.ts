@@ -40,6 +40,8 @@ export interface IfcModelDto {
   xktOutputUrl: string | null
   /** Relative URL to download the original IFC file. */
   originalFileUrl: string | null
+  /** Error message from the most recent failed conversion job. Null when no failure has occurred. */
+  conversionError: string | null
 }
 
 /** Model metadata */
