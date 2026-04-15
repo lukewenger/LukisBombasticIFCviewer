@@ -18,6 +18,8 @@ public class IfcModelDto
     public string? XktOutputUrl { get; set; }
     /// <summary>Relative URL to download the original IFC file. Always set once the model exists.</summary>
     public string? OriginalFileUrl { get; set; }
+    /// <summary>Error message from the most recent failed conversion job. Null when no failure has occurred.</summary>
+    public string? ConversionError { get; set; }
 }
 
 public class ModelMetadataDto
