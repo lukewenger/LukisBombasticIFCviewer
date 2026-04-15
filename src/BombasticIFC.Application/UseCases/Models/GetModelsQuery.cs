@@ -27,7 +27,7 @@ public class GetModelsQueryHandler : IRequestHandler<GetModelsQuery, List<IfcMod
     {
         var models = await _modelRepository.GetAllAsync(cancellationToken);
 
-        // Fetch all completed jobs in one query and group by model ID to avoid N+1
+        // Fetch completed and failed jobs in one query each, grouped by model ID to avoid N+1
         var completedJobs = await _jobRepository.GetByStatusAsync(ConversionStatus.Completed, cancellationToken);
         var latestCompletedByModel = completedJobs
             .Where(j => j.OutputFilePath != null)
@@ -36,9 +36,17 @@ public class GetModelsQueryHandler : IRequestHandler<GetModelsQuery, List<IfcMod
                 g => g.Key,
                 g => g.OrderByDescending(j => j.CompletedAt).First());
 
+        var failedJobs = await _jobRepository.GetByStatusAsync(ConversionStatus.Failed, cancellationToken);
+        var latestFailedByModel = failedJobs
+            .GroupBy(j => j.ModelId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(j => j.CompletedAt).First());
+
         return models.Select(model =>
         {
             var hasXkt = latestCompletedByModel.ContainsKey(model.Id);
+            latestFailedByModel.TryGetValue(model.Id, out var latestFailed);
             return new IfcModelDto
             {
                 Id = model.Id,
@@ -48,7 +56,8 @@ public class GetModelsQueryHandler : IRequestHandler<GetModelsQuery, List<IfcMod
                 CreatedAt = model.CreatedAt,
                 UpdatedAt = model.UpdatedAt,
                 XktOutputUrl = hasXkt ? $"/api/models/{model.Id}/output" : null,
-                OriginalFileUrl = $"/api/models/{model.Id}/original"
+                OriginalFileUrl = $"/api/models/{model.Id}/original",
+                ConversionError = latestFailed?.ErrorMessage
             };
         }).ToList();
     }

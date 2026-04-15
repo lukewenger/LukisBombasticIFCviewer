@@ -21,6 +21,18 @@ echo "=== API Redeploy ==="
 # reflect the current source, avoiding stale layer problems after updates.
 info "[1/3] Building API Docker image..."
 eval "$(minikube docker-env)"
+
+# Pre-pull base images so the multi-stage build doesn't time out mid-flight
+# pulling from MCR inside the Minikube daemon.
+for BASE_IMAGE in \
+    "mcr.microsoft.com/dotnet/sdk:8.0" \
+    "mcr.microsoft.com/dotnet/aspnet:8.0"; do
+    if ! docker image inspect "${BASE_IMAGE}" &>/dev/null; then
+        info "  Pulling base image ${BASE_IMAGE}..."
+        docker pull "${BASE_IMAGE}"
+    fi
+done
+
 docker build --no-cache -t "${API_IMAGE}" .
 ok "Image built: ${API_IMAGE}"
 

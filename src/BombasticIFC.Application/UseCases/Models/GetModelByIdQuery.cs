@@ -35,6 +35,10 @@ public class GetModelByIdQueryHandler : IRequestHandler<GetModelByIdQuery, IfcMo
             .Where(j => j.Status == ConversionStatus.Completed && j.OutputFilePath != null)
             .OrderByDescending(j => j.CompletedAt)
             .FirstOrDefault();
+        var latestFailed = jobs
+            .Where(j => j.Status == ConversionStatus.Failed)
+            .OrderByDescending(j => j.CompletedAt)
+            .FirstOrDefault();
 
         return new IfcModelDto
         {
@@ -45,7 +49,8 @@ public class GetModelByIdQueryHandler : IRequestHandler<GetModelByIdQuery, IfcMo
             CreatedAt = model.CreatedAt,
             UpdatedAt = model.UpdatedAt,
             XktOutputUrl = latestCompleted != null ? $"/api/models/{model.Id}/output" : null,
-            OriginalFileUrl = $"/api/models/{model.Id}/original"
+            OriginalFileUrl = $"/api/models/{model.Id}/original",
+            ConversionError = latestFailed?.ErrorMessage
         };
     }
 }
