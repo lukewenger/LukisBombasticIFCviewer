@@ -8,7 +8,6 @@ interface Props {
   deletingIds?: Record<string, boolean>
   retryingIds?: Record<string, boolean>
   selectedIds?: Set<string>
-  selectionMode?: boolean
 }
 
 interface Emits {
@@ -46,7 +45,6 @@ const ModelStatusConst = ModelStatus
           :is-retrying="retryingIds?.[model.id] ?? false"
           :is-viewable="model.status === ModelStatusConst.Ready"
           :is-selected="selectedIds?.has(model.id) ?? false"
-          :selection-mode="selectionMode"
           @view="$emit('view', model)"
           @retry="$emit('retry', model)"
           @delete="$emit('delete', model)"

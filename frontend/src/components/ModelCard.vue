@@ -10,7 +10,6 @@ interface Props {
   isRetrying?: boolean
   isViewable?: boolean
   isSelected?: boolean
-  selectionMode?: boolean
 }
 
 interface Emits {
@@ -71,7 +70,7 @@ function formatDate(dateStr: string): string {
     <!-- Selection checkbox column -->
     <td class="pl-4 pr-2 py-4 w-8">
       <input
-        v-if="selectionMode && isViewable"
+        v-if="isViewable"
         type="checkbox"
         class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
         :checked="isSelected"

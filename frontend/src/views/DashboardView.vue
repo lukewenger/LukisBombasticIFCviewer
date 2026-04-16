@@ -21,15 +21,9 @@ const error = ref<string | null>(null)
 
 // --- Multi-select ---
 const selectedIds = ref<Set<string>>(new Set())
-const selectionMode = ref(false)
 
 const selectedCount = computed(() => selectedIds.value.size)
 const canViewTogether = computed(() => selectedCount.value >= 2)
-
-function toggleSelectionMode() {
-  selectionMode.value = !selectionMode.value
-  if (!selectionMode.value) selectedIds.value = new Set()
-}
 
 function toggleSelect(model: IfcModelDto) {
   const next = new Set(selectedIds.value)
@@ -64,7 +58,19 @@ async function fetchModels() {
 }
 
 function openModelInViewer(model: IfcModelDto) {
-  router.push(`/viewer/${model.id}`)
+  if (selectedCount.value === 0) {
+    // No selection active — open this model directly
+    router.push(`/viewer/${model.id}`)
+    return
+  }
+  // Selection is active — add this model to the selection and open all together
+  const next = new Set(selectedIds.value)
+  next.add(model.id)
+  selectedIds.value = next
+  const ids = [...selectedIds.value]
+  const [first, ...rest] = ids
+  const query = rest.length > 0 ? `?also=${rest.join(',')}` : ''
+  router.push(`/viewer/${first}${query}`)
 }
 
 async function handleDeleteModel(model: IfcModelDto) {
@@ -83,8 +89,6 @@ onUnmounted(() => {
   stopPolling()
   clearAll()
 })
-
-const readyModels = computed(() => models.value.filter(m => m.status === ModelStatus.Ready))
 </script>
 
 <template>
@@ -111,19 +115,6 @@ const readyModels = computed(() => models.value.filter(m => m.status === ModelSt
           <RefreshCw class="w-5 h-5" />
         </button>
 
-        <!-- Multi-select toggle (only shown if 2+ ready models exist) -->
-        <button
-          v-if="readyModels.length >= 2"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors min-h-[44px]"
-          :class="selectionMode
-            ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-          @click="toggleSelectionMode"
-        >
-          <Eye class="w-4 h-4" />
-          {{ selectionMode ? 'Abbrechen' : 'Zusammen anzeigen' }}
-        </button>
-
         <button
           class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors min-h-[44px]"
           @click="router.push('/upload')"
@@ -134,9 +125,9 @@ const readyModels = computed(() => models.value.filter(m => m.status === ModelSt
       </div>
     </div>
 
-    <!-- Multi-select action bar -->
+    <!-- Multi-select action bar — shown when at least one model is selected -->
     <div
-      v-if="selectionMode"
+      v-if="selectedCount > 0"
       class="flex items-center justify-between mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl"
     >
       <p class="text-sm text-blue-700 dark:text-blue-300">
@@ -144,7 +135,6 @@ const readyModels = computed(() => models.value.filter(m => m.status === ModelSt
       </p>
       <div class="flex items-center gap-2">
         <button
-          v-if="selectedCount > 0"
           class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
           @click="selectedIds = new Set()"
         >
@@ -154,16 +144,16 @@ const readyModels = computed(() => models.value.filter(m => m.status === ModelSt
           class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-colors min-h-[36px]"
           :class="canViewTogether
             ? 'bg-blue-600 text-white hover:bg-blue-700'
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'"
-          :disabled="!canViewTogether"
+            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'"
           @click="viewSelectedTogether"
         >
           <Eye class="w-4 h-4" />
-          Gemeinsam anzeigen ({{ selectedCount }})
+          {{ canViewTogether ? `Ausgewählte anzeigen (${selectedCount})` : 'Anzeigen' }}
         </button>
         <button
           class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-          @click="toggleSelectionMode"
+          title="Auswahl aufheben"
+          @click="selectedIds = new Set()"
         >
           <X class="w-4 h-4" />
         </button>
@@ -208,7 +198,6 @@ const readyModels = computed(() => models.value.filter(m => m.status === ModelSt
         :deleting-ids="isDeleting"
         :retrying-ids="isRetrying"
         :selected-ids="selectedIds"
-        :selection-mode="selectionMode"
         @view="openModelInViewer"
         @retry="retryConversion"
         @delete="handleDeleteModel"

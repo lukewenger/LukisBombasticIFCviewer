@@ -26,7 +26,7 @@ const viewerTitle = computed(() => {
 const initialModels = computed(() =>
   models.value
     .filter(m => m.xktOutputUrl)
-    .map(m => ({ id: m.id, src: m.xktOutputUrl!, label: m.fileName }))
+    .map(m => ({ id: m.id, src: m.xktOutputUrl!, label: m.fileName, fileSizeBytes: m.fileSizeBytes }))
 )
 
 const usingDemo = computed(() => models.value.length === 0 || models.value.every(m => !m.xktOutputUrl))
