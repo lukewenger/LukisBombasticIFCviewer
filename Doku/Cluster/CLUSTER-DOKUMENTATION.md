@@ -743,5 +743,3 @@ Um das Diagramm zu rendern, verwenden Sie einen PlantUML-Viewer oder Online-Tool
 
 ---
 
-*Erstellt am 28.02.2026 — Aktualisiert am 07.03.2026 — BombasticIFC Cluster v1.1*
-
