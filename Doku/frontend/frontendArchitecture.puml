@@ -1,0 +1,172 @@
+@startuml Frontend Architecture
+!theme plain
+skinparam class {
+    BackgroundColor<<layer>> LightBlue
+    BackgroundColor<<store>> LightGreen
+    BackgroundColor<<composable>> LightYellow
+    BackgroundColor<<api>> LightCoral
+    BackgroundColor<<view>> LightCyan
+    BackgroundColor<<component>> LavenderBlush
+}
+
+package "Application Entry" {
+    class main.ts
+}
+
+package "Router Layer" {
+    class "router/index.ts" as router {
+        Routes: Home, Login, Register, Dashboard, Upload, Viewer, Profile
+        Auth Guard: requiresAuth, guestOnly
+    }
+}
+
+package "View Layer (Pages)" {
+    class HomeView
+    class LoginView
+    class RegisterView
+    class DashboardView
+    class UploadView
+    class ViewerView
+    class ProfileView
+    class NotFoundView
+}
+
+package "Component Layer (Shared)" {
+    class AppHeader
+    class LoginForm
+    class RegisterForm
+    class ModelTable
+    class ModelCard
+    class ToastContainer
+    class Toast
+    class XeokitPointViewer
+    class ErrorMessage
+}
+
+package "State Management (Pinia)" {
+    class "stores/auth.ts" as authStore <<store>> {
+        user, accessToken, refreshToken
+        isAuthenticated, userRole, username
+        login(), logout(), register(), refresh()
+    }
+}
+
+package "Business Logic (Composables)" {
+    class "useToasts()" as useToasts <<composable>> {
+        toasts[], showToast(), removeToast()
+        clearAll()
+    }
+    class "useModelPolling()" as useModelPolling <<composable>> {
+        hasActiveJobs, fetchModels()
+        startPolling(), stopPolling()
+    }
+    class "useModelOperations()" as useModelOperations <<composable>> {
+        isDeleting, isRetrying
+        deleteModel(), retryConversion()
+    }
+}
+
+package "API Layer (HTTP Clients)" {
+    class "api/auth.ts" as authApi <<api>> {
+        login(), register(), logout()
+        refreshToken(), getCurrentUser()
+    }
+    class "api/client.ts" as client <<api>> {
+        HTTP interceptors, auth headers
+        error handling
+    }
+    class "api/models.ts" as modelsApi <<api>> {
+        getModels(), uploadModel()
+        getModel(), deleteModel()
+    }
+    class "api/conversions.ts" as conversionsApi <<api>> {
+        getConversions(), retryConversion()
+        getConversionStatus()
+    }
+}
+
+package "Types & DTOs" {
+    class "types/auth.ts"
+    class "types/models.ts"
+    class "types/index.ts"
+}
+
+package "Backend API (External)" {
+    class "REST API Endpoints" as backendAPI {
+        /api/auth/login
+        /api/auth/register
+        /api/models
+        /api/conversions
+    }
+}
+
+' Entry point
+main.ts --> router
+main.ts --> authStore
+
+' Router connections
+router --> HomeView
+router --> LoginView
+router --> RegisterView
+router --> DashboardView
+router --> UploadView
+router --> ViewerView
+router --> ProfileView
+router --> NotFoundView
+
+' View connections to components
+DashboardView --> ModelTable
+DashboardView --> ToastContainer
+DashboardView --> XeokitPointViewer
+DashboardView --> useToasts
+DashboardView --> useModelPolling
+DashboardView --> useModelOperations
+
+LoginView --> LoginForm
+RegisterView --> RegisterForm
+UploadView --> ToastContainer
+ViewerView --> XeokitPointViewer
+
+' Components to composables/stores
+ModelTable --> ModelCard
+ToastContainer --> Toast
+LoginForm --> authStore
+RegisterForm --> authStore
+
+' Composables to Stores & APIs
+useToasts -.-> useToasts: Creates Toast Ref[]
+useModelPolling --> modelsApi
+useModelPolling --> authStore
+useModelOperations --> modelsApi
+useModelOperations --> conversionsApi
+useModelOperations --> useToasts
+
+' Form actions
+LoginForm --> authApi
+RegisterForm --> authApi
+
+' API Clients to HTTP Client
+authApi --> client
+modelsApi --> client
+conversionsApi --> client
+
+' Client to Backend
+client --> backendAPI
+
+' Types usage (implicit)
+authApi -.-> "types/auth.ts": Uses
+modelsApi -.-> "types/models.ts": Uses
+DashboardView -.-> "types/models.ts": Uses
+
+' Store to API
+authStore --> authApi: Calls
+
+legend right
+    |<#LightCyan> Views (Pages) |
+    |<#LavenderBlush> Components |
+    |<#LightYellow> Composables (Logic) |
+    |<#LightGreen> Pinia Store |
+    |<#LightCoral> API Clients |
+end legend
+
+@enduml
