@@ -1,27 +1,19 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useXeokitViewer } from '../composables/useXeokitViewer'
 import { usePointPicker } from '../composables/usePointPicker'
 import { downloadPickedPointsCsv, importPointsFromCsv } from '../composables/usePointCsv'
 import PointPickerPanel from './PointPickerPanel.vue'
 import EntityAttributesPanel from './EntityAttributesPanel.vue'
-import ModelListPanel from './ModelListPanel.vue'
-import type { IfcModelDto } from '../types'
-
-export interface ModelEntry {
-  id: string
-  src: string
-  label: string
-}
 
 const props = withDefaults(
   defineProps<{
-    initialModels?: ModelEntry[]
+    modelSrc?: string | null
     fallbackSrc?: string
     canvasHeightClass?: string
   }>(),
   {
-    initialModels: () => [],
+    modelSrc: null,
     fallbackSrc: '/samples/Duplex.xkt',
     canvasHeightClass: 'h-[60vh]',
   }
@@ -59,14 +51,9 @@ const {
   viewerError,
   selectedEntityId,
   selectedAttributes,
-  loadedModels,
   clearSelection,
   setSelectedEntity,
   initializeViewer,
-  loadModel,
-  loadModels,
-  unloadModel,
-  setModelVisible,
   destroyViewer,
 } = useXeokitViewer()
 
@@ -133,6 +120,8 @@ async function bootViewer() {
 
   const viewerInstance = await initializeViewer(
     canvasRef.value,
+    props.modelSrc,
+    props.fallbackSrc,
     (pickResult) => {
       if (pointPickingMode.value) {
         addPickedPoint(pickResult)
@@ -150,17 +139,7 @@ async function bootViewer() {
   if (viewerInstance) {
     setViewer(viewerInstance)
     renderPointCloud()
-
-    if (props.initialModels.length > 0) {
-      // Load all initial models in parallel
-      await loadModels(props.initialModels, props.fallbackSrc)
-    }
   }
-}
-
-async function handleAddModel(model: IfcModelDto) {
-  if (!model.xktOutputUrl) return
-  await loadModel(model.id, model.xktOutputUrl, model.fileName, props.fallbackSrc)
 }
 
 onMounted(() => {
@@ -177,6 +156,10 @@ onUnmounted(() => {
   viewerRootRef.value?.removeEventListener('wheel', handleViewerWheel, true)
   destroyPointCloud()
   destroyViewer()
+})
+
+watch(() => props.modelSrc, () => {
+  bootViewer()
 })
 
 watch(pointRadius, () => {
@@ -202,17 +185,6 @@ watch(pointTransparency, () => {
     </div>
 
     <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : props.canvasHeightClass"></canvas>
-
-    <!-- Model list panel (top-left overlay) -->
-    <div v-if="!viewerLoading && !viewerError" data-wheel-scroll-panel="true">
-      <ModelListPanel
-        :loaded-models="loadedModels"
-        :fallback-src="props.fallbackSrc"
-        @toggle-visible="(id, visible) => setModelVisible(id, visible)"
-        @unload="unloadModel"
-        @add-model="handleAddModel"
-      />
-    </div>
 
     <div data-wheel-scroll-panel="true">
       <PointPickerPanel
