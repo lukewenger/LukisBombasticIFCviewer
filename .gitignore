@@ -92,7 +92,3 @@ frontend/cypress/screenshots/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-
-# Claude
-claude-*.log
-/.claude/

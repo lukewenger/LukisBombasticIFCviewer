@@ -19,7 +19,7 @@ const isLoading = ref(true)
 
 const viewerTitle = computed(() => {
   if (models.value.length === 0) return '3D-Viewer'
-  if (models.value.length === 1) return models.value[0].fileName
+  if (models.value.length === 1) return models.value[0]!.fileName
   return `${models.value.length} Modelle`
 })
 
