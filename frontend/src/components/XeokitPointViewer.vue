@@ -2,16 +2,19 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useXeokitViewer } from '../composables/useXeokitViewer'
 import { usePointPicker } from '../composables/usePointPicker'
+import { useMemoryGuard } from '../composables/useMemoryGuard'
 import { downloadPickedPointsCsv, importPointsFromCsv } from '../composables/usePointCsv'
 import PointPickerPanel from './PointPickerPanel.vue'
 import EntityAttributesPanel from './EntityAttributesPanel.vue'
 import ModelListPanel from './ModelListPanel.vue'
+import MemoryWarningModal from './MemoryWarningModal.vue'
 import type { IfcModelDto } from '../types'
 
 export interface ModelEntry {
   id: string
   src: string
   label: string
+  fileSizeBytes?: number
 }
 
 const props = withDefaults(
@@ -60,6 +63,7 @@ const {
   selectedEntityId,
   selectedAttributes,
   loadedModels,
+  totalLoadedBytes,
   clearSelection,
   setSelectedEntity,
   initializeViewer,
@@ -69,6 +73,8 @@ const {
   setModelVisible,
   destroyViewer,
 } = useXeokitViewer()
+
+const { pendingWarning, checkBeforeLoad, confirmWarning, dismissWarning } = useMemoryGuard()
 
 const {
   pickedPoints,
@@ -160,7 +166,9 @@ async function bootViewer() {
 
 async function handleAddModel(model: IfcModelDto) {
   if (!model.xktOutputUrl) return
-  await loadModel(model.id, model.xktOutputUrl, model.fileName, props.fallbackSrc)
+  const proceed = await checkBeforeLoad(model.fileName, model.fileSizeBytes, totalLoadedBytes.value)
+  if (!proceed) return
+  await loadModel(model.id, model.xktOutputUrl, model.fileName, props.fallbackSrc, model.fileSizeBytes)
 }
 
 onMounted(() => {
@@ -244,5 +252,13 @@ watch(pointTransparency, () => {
         @clear-selection="clearSelection"
       />
     </div>
+
+    <!-- RAM overload warning modal -->
+    <MemoryWarningModal
+      v-if="pendingWarning"
+      :warning="pendingWarning"
+      @confirm="confirmWarning"
+      @dismiss="dismissWarning"
+    />
   </div>
 </template>

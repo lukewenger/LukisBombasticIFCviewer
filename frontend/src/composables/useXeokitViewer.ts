@@ -7,7 +7,12 @@ export interface LoadedModelEntry {
   visible: boolean
   loading: boolean
   error: string | null
+  /** Original IFC file size in bytes — used as a RAM-usage proxy */
+  fileSizeBytes: number
 }
+
+/** Default memory warning threshold: 500 MB expressed in bytes */
+export const DEFAULT_MEMORY_THRESHOLD_BYTES = 500 * 1024 * 1024
 
 export function useXeokitViewer() {
   const viewerInitializing = ref(false)
@@ -15,6 +20,16 @@ export function useXeokitViewer() {
   const selectedEntityId = ref<string | null>(null)
   const selectedAttributes = ref<Record<string, string>>({})
   const loadedModels = ref<Record<string, LoadedModelEntry>>({})
+
+  /**
+   * Returns the total fileSizeBytes of all currently loaded (non-errored) models.
+   * This is used as a proxy for RAM / VRAM usage.
+   */
+  const totalLoadedBytes = computed(() =>
+    Object.values(loadedModels.value)
+      .filter(m => !m.error)
+      .reduce((sum, m) => sum + m.fileSizeBytes, 0)
+  )
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let viewer: any = null
@@ -152,12 +167,13 @@ export function useXeokitViewer() {
     id: string,
     src: string,
     label: string,
-    fallbackSrc?: string
+    fallbackSrc?: string,
+    fileSizeBytes = 0
   ): Promise<void> {
     if (!viewer || !xktLoader) return
     if (loadedModels.value[id]) return
 
-    loadedModels.value[id] = { id, src, label, visible: true, loading: true, error: null }
+    loadedModels.value[id] = { id, src, label, visible: true, loading: true, error: null, fileSizeBytes }
 
     let loadUrl = src
     if (src) {
@@ -190,10 +206,10 @@ export function useXeokitViewer() {
 
   /** Load multiple models in parallel, then fly to the full scene. */
   async function loadModels(
-    entries: { id: string; src: string; label: string }[],
+    entries: { id: string; src: string; label: string; fileSizeBytes?: number }[],
     fallbackSrc?: string
   ): Promise<void> {
-    await Promise.all(entries.map(e => loadModelInternal(e.id, e.src, e.label, fallbackSrc)))
+    await Promise.all(entries.map(e => loadModelInternal(e.id, e.src, e.label, fallbackSrc, e.fileSizeBytes ?? 0)))
     if (viewer) viewer.cameraFlight.flyTo(viewer.scene)
   }
 
@@ -202,9 +218,10 @@ export function useXeokitViewer() {
     id: string,
     src: string,
     label: string,
-    fallbackSrc?: string
+    fallbackSrc?: string,
+    fileSizeBytes = 0
   ): Promise<void> {
-    await loadModelInternal(id, src, label, fallbackSrc)
+    await loadModelInternal(id, src, label, fallbackSrc, fileSizeBytes)
     if (viewer) viewer.cameraFlight.flyTo(viewer.scene)
   }
 
@@ -238,6 +255,7 @@ export function useXeokitViewer() {
     selectedEntityId,
     selectedAttributes,
     loadedModels,
+    totalLoadedBytes,
     clearSelection,
     setSelectedEntity,
     initializeViewer,

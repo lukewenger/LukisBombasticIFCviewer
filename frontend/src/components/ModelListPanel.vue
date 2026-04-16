@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { Layers, Eye, EyeOff, Trash2, Plus, X, Loader2 } from 'lucide-vue-next'
+import { ref, computed, onMounted } from 'vue'
+import { Layers, Eye, EyeOff, Trash2, Download, Loader2, RefreshCw, AlertCircle } from 'lucide-vue-next'
 import { modelsApi } from '../api/models'
 import { ModelStatus } from '../types/models'
 import type { IfcModelDto } from '../types'
 import type { LoadedModelEntry } from '../composables/useXeokitViewer'
+
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return ''
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 const props = defineProps<{
   loadedModels: Record<string, LoadedModelEntry>
@@ -18,23 +24,28 @@ const emit = defineEmits<{
 }>()
 
 const isOpen = ref(true)
-const showAddModal = ref(false)
-const availableModels = ref<IfcModelDto[]>([])
+const allModels = ref<IfcModelDto[]>([])
 const fetchingModels = ref(false)
 const fetchError = ref<string | null>(null)
 
 const loadedCount = computed(() => Object.keys(props.loadedModels).length)
 const anyLoading = computed(() => Object.values(props.loadedModels).some(m => m.loading))
+const totalBytes = computed(() =>
+  Object.values(props.loadedModels).reduce((sum, m) => sum + (m.fileSizeBytes ?? 0), 0)
+)
+const totalSizeLabel = computed(() => formatBytes(totalBytes.value))
 
-async function openAddModal() {
-  showAddModal.value = true
+// All ready models with an XKT output, sorted: loaded first
+const displayModels = computed(() => {
+  return allModels.value.filter(m => m.status === ModelStatus.Ready && m.xktOutputUrl)
+})
+
+async function fetchAvailableModels() {
   fetchingModels.value = true
   fetchError.value = null
   try {
     const all = await modelsApi.getModels()
-    availableModels.value = all.filter(
-      m => m.status === ModelStatus.Ready && m.xktOutputUrl && !props.loadedModels[m.id]
-    )
+    allModels.value = all.filter(m => m.status === ModelStatus.Ready && m.xktOutputUrl)
   } catch {
     fetchError.value = 'Modelle konnten nicht geladen werden.'
   } finally {
@@ -42,159 +53,147 @@ async function openAddModal() {
   }
 }
 
-function closeAddModal() {
-  showAddModal.value = false
-  availableModels.value = []
-  fetchError.value = null
-}
-
-function selectModel(model: IfcModelDto) {
-  emit('add-model', model)
-  closeAddModal()
-}
+onMounted(() => {
+  fetchAvailableModels()
+})
 </script>
 
 <template>
   <!-- Model List Panel -->
-  <div class="absolute top-4 left-4 z-10 w-64 select-none">
+  <div class="absolute top-4 left-4 z-10 w-72 select-none">
     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
       <!-- Header -->
-      <button
-        class="w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-        @click="isOpen = !isOpen"
-      >
-        <div class="flex items-center gap-2">
-          <Layers class="w-4 h-4 text-blue-500" />
+      <div class="flex items-center px-3 py-2.5">
+        <button
+          class="flex-1 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors text-left"
+          @click="isOpen = !isOpen"
+        >
+          <Layers class="w-4 h-4 text-blue-500 shrink-0" />
           <span>Modelle</span>
           <span class="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-semibold px-1.5 py-0.5 rounded-full">
             {{ loadedCount }}
           </span>
-          <Loader2 v-if="anyLoading" class="w-3.5 h-3.5 text-blue-500 animate-spin" />
+          <span v-if="totalSizeLabel" class="text-xs text-gray-400 dark:text-gray-500">{{ totalSizeLabel }}</span>
+          <Loader2 v-if="anyLoading" class="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />
+        </button>
+        <div class="flex items-center gap-1">
+          <!-- Refresh button -->
+          <button
+            class="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Modelliste aktualisieren"
+            :disabled="fetchingModels"
+            @click.stop="fetchAvailableModels"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="fetchingModels ? 'animate-spin' : ''" />
+          </button>
+          <!-- Collapse chevron -->
+          <svg
+            class="w-4 h-4 text-gray-400 transition-transform shrink-0"
+            :class="isOpen ? 'rotate-0' : '-rotate-90'"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            @click="isOpen = !isOpen"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
-        <svg
-          class="w-4 h-4 transition-transform"
-          :class="isOpen ? 'rotate-0' : '-rotate-90'"
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+      </div>
 
-      <!-- Model list -->
+      <!-- Body -->
       <div v-if="isOpen">
+        <!-- Loading state -->
+        <div v-if="fetchingModels && displayModels.length === 0" class="flex items-center justify-center py-5">
+          <Loader2 class="w-5 h-5 text-blue-500 animate-spin" />
+        </div>
+
+        <!-- Fetch error -->
+        <div v-else-if="fetchError" class="px-3 py-3 flex items-start gap-2">
+          <AlertCircle class="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+          <p class="text-xs text-red-600 dark:text-red-400">{{ fetchError }}</p>
+        </div>
+
+        <!-- No models -->
         <div
-          v-if="loadedCount === 0"
+          v-else-if="displayModels.length === 0"
           class="px-3 py-3 text-xs text-gray-400 dark:text-gray-500 text-center"
         >
-          Keine Modelle geladen
+          Keine Modelle verfügbar
         </div>
 
-        <ul v-else class="divide-y divide-gray-100 dark:divide-gray-700/50 max-h-48 overflow-y-auto">
+        <!-- Unified model list -->
+        <ul v-else class="divide-y divide-gray-100 dark:divide-gray-700/50 max-h-64 overflow-y-auto">
           <li
-            v-for="entry in loadedModels"
-            :key="entry.id"
+            v-for="model in displayModels"
+            :key="model.id"
             class="flex items-center gap-2 px-3 py-2"
           >
-            <Loader2
-              v-if="entry.loading"
-              class="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0"
-            />
+            <!-- Loaded model controls -->
+            <template v-if="loadedModels[model.id]">
+              <!-- Spinner while loading -->
+              <Loader2
+                v-if="loadedModels[model.id].loading"
+                class="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0"
+              />
+              <!-- Eye / EyeOff toggle once loaded -->
+              <button
+                v-else
+                class="shrink-0 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                :title="loadedModels[model.id].visible ? 'Ausblenden' : 'Einblenden'"
+                @click="emit('toggle-visible', model.id, !loadedModels[model.id].visible)"
+              >
+                <Eye v-if="loadedModels[model.id].visible" class="w-3.5 h-3.5" />
+                <EyeOff v-else class="w-3.5 h-3.5" />
+              </button>
+            </template>
+
+            <!-- Not loaded: Download / Load icon -->
             <button
               v-else
-              class="shrink-0 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-              :title="entry.visible ? 'Ausblenden' : 'Einblenden'"
-              @click="emit('toggle-visible', entry.id, !entry.visible)"
+              class="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              title="Modell laden"
+              @click="emit('add-model', model)"
             >
-              <Eye v-if="entry.visible" class="w-3.5 h-3.5" />
-              <EyeOff v-else class="w-3.5 h-3.5" />
+              <Download class="w-3.5 h-3.5" />
             </button>
 
+            <!-- Model name -->
             <span
-              class="flex-1 text-xs truncate"
+              class="flex-1 text-xs truncate min-w-0"
               :class="[
-                entry.error ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-300',
-                !entry.visible ? 'opacity-50' : '',
+                loadedModels[model.id]?.error ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-300',
+                loadedModels[model.id] && !loadedModels[model.id].visible ? 'opacity-50' : '',
               ]"
-              :title="entry.error ?? entry.label"
+              :title="loadedModels[model.id]?.error ?? model.fileName"
             >
-              {{ entry.label }}
+              {{ model.fileName }}
             </span>
 
+            <!-- Error indicator -->
+            <AlertCircle
+              v-if="loadedModels[model.id]?.error"
+              class="w-3 h-3 text-red-400 shrink-0"
+              :title="loadedModels[model.id].error ?? ''"
+            />
+
+            <!-- File size -->
+            <span
+              v-if="model.fileSizeBytes > 0"
+              class="shrink-0 text-xs text-gray-400 dark:text-gray-500 tabular-nums"
+            >
+              {{ formatBytes(model.fileSizeBytes) }}
+            </span>
+
+            <!-- Unload button — only for loaded models -->
             <button
+              v-if="loadedModels[model.id]"
               class="shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
               title="Entfernen"
-              @click="emit('unload', entry.id)"
+              @click="emit('unload', model.id)"
             >
               <Trash2 class="w-3.5 h-3.5" />
             </button>
           </li>
         </ul>
-
-        <!-- Add model button -->
-        <div class="px-3 py-2 border-t border-gray-100 dark:border-gray-700/50">
-          <button
-            class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-            @click="openAddModal"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            Modell hinzufügen
-          </button>
-        </div>
       </div>
     </div>
   </div>
-
-  <!-- Add Model Modal -->
-  <Teleport to="body">
-    <div
-      v-if="showAddModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-      @click.self="closeAddModal"
-    >
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <!-- Modal header -->
-        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div class="flex items-center gap-2">
-            <Plus class="w-5 h-5 text-blue-500" />
-            <h2 class="text-base font-semibold text-gray-900 dark:text-white">Modell hinzufügen</h2>
-          </div>
-          <button
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-            @click="closeAddModal"
-          >
-            <X class="w-5 h-5" />
-          </button>
-        </div>
-
-        <!-- Modal body -->
-        <div class="p-5">
-          <div v-if="fetchingModels" class="flex items-center justify-center py-8">
-            <Loader2 class="w-6 h-6 text-blue-500 animate-spin" />
-          </div>
-
-          <p v-else-if="fetchError" class="text-sm text-red-600 dark:text-red-400 text-center py-4">
-            {{ fetchError }}
-          </p>
-
-          <p v-else-if="availableModels.length === 0" class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-            Keine weiteren Modelle verfügbar.
-          </p>
-
-          <ul v-else class="space-y-1 max-h-72 overflow-y-auto">
-            <li v-for="model in availableModels" :key="model.id">
-              <button
-                class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-colors group"
-                @click="selectModel(model)"
-              >
-                <Layers class="w-4 h-4 text-gray-400 group-hover:text-blue-500 shrink-0" />
-                <span class="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate group-hover:text-blue-700 dark:group-hover:text-blue-300">
-                  {{ model.fileName }}
-                </span>
-              </button>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </Teleport>
 </template>
