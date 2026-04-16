@@ -9,15 +9,12 @@ interface Props {
   isDeleting?: boolean
   isRetrying?: boolean
   isViewable?: boolean
-  isSelected?: boolean
-  selectionMode?: boolean
 }
 
 interface Emits {
   (e: 'view'): void
   (e: 'retry'): void
   (e: 'delete'): void
-  (e: 'toggle-select'): void
 }
 
 defineProps<Props>()
@@ -64,22 +61,8 @@ function formatDate(dateStr: string): string {
 </script>
 
 <template>
-  <tr
-    class="border-b border-gray-100 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-    :class="isSelected ? 'bg-blue-50 dark:bg-blue-900/10' : ''"
-  >
-    <!-- Selection checkbox column -->
-    <td class="pl-4 pr-2 py-4 w-8">
-      <input
-        v-if="selectionMode && isViewable"
-        type="checkbox"
-        class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-        :checked="isSelected"
-        @change="$emit('toggle-select')"
-      />
-    </td>
-
-    <td class="px-4 py-4">
+  <tr class="border-b border-gray-100 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+    <td class="px-6 py-4">
       <p class="font-medium text-gray-900 dark:text-white truncate max-w-xs">{{ model.fileName }}</p>
     </td>
     <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">
