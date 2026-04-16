@@ -193,12 +193,14 @@ export function useXeokitViewer() {
     await new Promise<void>((resolve) => {
       const sceneModel = xktLoader.load({ id, src: loadUrl, edges: true })
       sceneModel.on('loaded', () => {
-        loadedModels.value[id].loading = false
+        if (loadedModels.value[id]) loadedModels.value[id]!.loading = false
         resolve()
       })
       sceneModel.on('error', () => {
-        loadedModels.value[id].error = 'Modell konnte nicht geladen werden.'
-        loadedModels.value[id].loading = false
+        if (loadedModels.value[id]) {
+          loadedModels.value[id]!.error = 'Modell konnte nicht geladen werden.'
+          loadedModels.value[id]!.loading = false
+        }
         resolve()
       })
     })
