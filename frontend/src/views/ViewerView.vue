@@ -9,20 +9,38 @@ import type { IfcModelDto } from '../types'
 const route = useRoute()
 const router = useRouter()
 
-const modelId = route.params.id as string
-const model = ref<IfcModelDto | null>(null)
+// Primary model ID from route param; optional additional IDs from ?also=id2,id3
+const primaryId = route.params.id as string
+const alsoParam = route.query.also as string | undefined
+const allIds = [primaryId, ...(alsoParam ? alsoParam.split(',').filter(Boolean) : [])]
+
+const models = ref<IfcModelDto[]>([])
 const isLoading = ref(true)
 
-const viewerModelName = computed(() => model.value?.fileName ?? '3D-Viewer')
-const viewerSrc = computed(() => model.value?.xktOutputUrl ?? null)
-const usingDemo = computed(() => !model.value?.xktOutputUrl)
+const viewerTitle = computed(() => {
+  if (models.value.length === 0) return '3D-Viewer'
+  if (models.value.length === 1) return models.value[0].fileName
+  return `${models.value.length} Modelle`
+})
+
+const initialModels = computed(() =>
+  models.value
+    .filter(m => m.xktOutputUrl)
+    .map(m => ({ id: m.id, src: m.xktOutputUrl!, label: m.fileName }))
+)
+
+const usingDemo = computed(() => models.value.length === 0 || models.value.every(m => !m.xktOutputUrl))
 
 onMounted(async () => {
   isLoading.value = true
   try {
-    model.value = await modelsApi.getModel(modelId)
+    // Fetch all model DTOs in parallel
+    const results = await Promise.allSettled(allIds.map(id => modelsApi.getModel(id)))
+    models.value = results
+      .filter((r): r is PromiseFulfilledResult<IfcModelDto> => r.status === 'fulfilled')
+      .map(r => r.value)
   } catch {
-    // If model details cannot be loaded we still render the fallback demo in the viewer component.
+    // Viewer will fall back to demo model
   } finally {
     isLoading.value = false
   }
@@ -42,7 +60,7 @@ onMounted(async () => {
         </button>
         <Box class="w-6 h-6 text-blue-600" />
         <div>
-          <h1 class="text-xl font-semibold text-gray-900 dark:text-white">{{ viewerModelName }}</h1>
+          <h1 class="text-xl font-semibold text-gray-900 dark:text-white">{{ viewerTitle }}</h1>
           <p v-if="usingDemo" class="text-xs text-yellow-600 dark:text-yellow-400">
             Demo-Modell (Duplex) wird angezeigt, da keine XKT-Ausgabe verfuegbar ist.
           </p>
@@ -58,7 +76,7 @@ onMounted(async () => {
     </div>
 
     <div v-else class="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900">
-      <XeokitPointViewer :model-src="viewerSrc" canvas-height-class="h-[72vh]" />
+      <XeokitPointViewer :initial-models="initialModels" canvas-height-class="h-[72vh]" />
     </div>
   </div>
 </template>
