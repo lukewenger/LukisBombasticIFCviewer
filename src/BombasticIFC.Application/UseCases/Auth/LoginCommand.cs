@@ -44,6 +44,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponseDto
 
         var refreshToken = _tokenService.GenerateRefreshToken();
 
+        var tokenHash = _tokenService.HashToken(refreshToken);
+        user.SetRefreshToken(tokenHash, DateTime.UtcNow.AddDays(7));
+        await _userRepository.UpdateAsync(user, cancellationToken);
+
         return new AuthResponseDto(
             user.Id,
             user.Username,

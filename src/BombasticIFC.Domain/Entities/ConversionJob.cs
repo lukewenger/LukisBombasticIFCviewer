@@ -74,4 +74,12 @@ public class ConversionJob : BaseEntity
         CompletedAt = DateTime.UtcNow;
         MarkAsUpdated();
     }
+
+    public void ResetToQueued()
+    {
+        Status = ConversionStatus.Queued;
+        StartedAt = null;
+        ProgressPercentage = 0;
+        MarkAsUpdated();
+    }
 }

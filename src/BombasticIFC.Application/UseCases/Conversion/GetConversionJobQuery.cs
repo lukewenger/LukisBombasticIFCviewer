@@ -35,7 +35,7 @@ public class GetConversionJobQueryHandler : IRequestHandler<GetConversionJobQuer
             CreatedAt = job.CreatedAt,
             StartedAt = job.StartedAt,
             CompletedAt = job.CompletedAt,
-            OutputFilePath = job.OutputFilePath,
+            HasOutput = job.OutputFilePath != null,
             ErrorMessage = job.ErrorMessage
         };
     }

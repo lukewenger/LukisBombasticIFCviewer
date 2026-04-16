@@ -30,6 +30,27 @@ public class CreateConversionJobCommandHandler
         CreateConversionJobCommand request, 
         CancellationToken cancellationToken)
     {
+        // Deduplication: return existing queued or processing job if one exists
+        var existingJobs = await _jobRepository.GetByModelIdAsync(request.ModelId, cancellationToken);
+        var activeJob = existingJobs.FirstOrDefault(j =>
+            j.TargetFormat == request.TargetFormat &&
+            (j.Status == ConversionStatus.Queued || j.Status == ConversionStatus.Processing));
+
+        if (activeJob != null)
+        {
+            return new ConversionJobDto
+            {
+                Id = activeJob.Id,
+                ModelId = activeJob.ModelId,
+                TargetFormat = activeJob.TargetFormat,
+                Status = activeJob.Status,
+                ProgressPercentage = activeJob.ProgressPercentage,
+                CreatedAt = activeJob.CreatedAt,
+                StartedAt = activeJob.StartedAt,
+                HasOutput = activeJob.OutputFilePath != null
+            };
+        }
+
         // Get the model
         var model = await _modelRepository.GetByIdAsync(request.ModelId, cancellationToken)
             ?? throw new InvalidOperationException($"Model with ID {request.ModelId} not found");
@@ -47,7 +68,8 @@ public class CreateConversionJobCommandHandler
             TargetFormat = job.TargetFormat,
             Status = job.Status,
             ProgressPercentage = job.ProgressPercentage,
-            CreatedAt = job.CreatedAt
+            CreatedAt = job.CreatedAt,
+            HasOutput = false
         };
     }
 }

@@ -1,9 +1,9 @@
-using BombasticIFC.Application.Common.Interfaces;
 using BombasticIFC.Application.DTOs;
 using BombasticIFC.Application.UseCases.Models;
-using BombasticIFC.Domain.Repositories;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace BombasticIFC.API.Controllers;
 
@@ -12,27 +12,18 @@ namespace BombasticIFC.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ModelsController : ControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<ModelsController> _logger;
-    private readonly IConversionJobRepository _conversionJobRepository;
-    private readonly IFileStorageService _fileStorageService;
-
-    private readonly IIfcModelRepository _modelRepository;
 
     public ModelsController(
         IMediator mediator,
-        ILogger<ModelsController> logger,
-        IConversionJobRepository conversionJobRepository,
-        IFileStorageService fileStorageService,
-        IIfcModelRepository modelRepository)
+        ILogger<ModelsController> logger)
     {
         _mediator = mediator;
         _logger = logger;
-        _conversionJobRepository = conversionJobRepository;
-        _fileStorageService = fileStorageService;
-        _modelRepository = modelRepository;
     }
 
     /// <summary>
@@ -51,6 +42,8 @@ public class ModelsController : ControllerBase
     /// Upload a new IFC model
     /// </summary>
     [HttpPost("upload")]
+    [RequestSizeLimit(524_288_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 524_288_000)]
     [ProducesResponseType(typeof(IfcModelDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IfcModelDto>> UploadModel(IFormFile file)
@@ -63,8 +56,14 @@ public class ModelsController : ControllerBase
 
         _logger.LogInformation("Uploading model: {FileName}, Size: {FileSize}", file.FileName, file.Length);
 
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub");
+        Guid? userId = userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var parsedId)
+            ? parsedId
+            : null;
+
         using var stream = file.OpenReadStream();
-        var command = new UploadModelCommand(stream, file.FileName, null);
+        var command = new UploadModelCommand(stream, file.FileName, userId);
         var result = await _mediator.Send(command);
 
         return CreatedAtAction(nameof(GetModel), new { id = result.Id }, result);
@@ -95,16 +94,10 @@ public class ModelsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetModelOriginal(Guid id)
     {
-        var model = await _modelRepository.GetByIdAsync(id);
-        if (model == null)
-            return NotFound(new { message = "Model not found" });
-
-        if (!await _fileStorageService.FileExistsAsync(model.OriginalFilePath))
-            return NotFound(new { message = "Original file not found on disk" });
-
-        var stream = await _fileStorageService.GetFileAsync(model.OriginalFilePath);
-        var fileName = Path.GetFileName(model.OriginalFilePath);
-        return File(stream, "application/octet-stream", fileName);
+        var result = await _mediator.Send(new GetModelOriginalQuery(id));
+        if (result == null)
+            return NotFound(new { message = "Model or original file not found" });
+        return File(result.Stream, result.ContentType, result.FileName);
     }
 
     /// <summary>
@@ -115,32 +108,10 @@ public class ModelsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetModelOutput(Guid id)
     {
-        var model = await _modelRepository.GetByIdAsync(id);
-        if (model == null)
-        {
-            return NotFound(new { message = "Model not found" });
-        }
-
-        var jobs = await _conversionJobRepository.GetByModelIdAsync(id);
-        var completedJob = jobs
-            .Where(j => j.Status == Domain.Enums.ConversionStatus.Completed && j.OutputFilePath != null)
-            .OrderByDescending(j => j.CompletedAt)
-            .FirstOrDefault();
-
-        if (completedJob?.OutputFilePath == null)
-        {
+        var result = await _mediator.Send(new GetModelOutputQuery(id));
+        if (result == null)
             return NotFound(new { message = "No converted output available for this model" });
-        }
-
-        if (!await _fileStorageService.FileExistsAsync(completedJob.OutputFilePath))
-        {
-            Response.ContentType = "application/json";
-            return NotFound(new { message = "Output file not found on disk" });
-        }
-
-        var stream = await _fileStorageService.GetFileAsync(completedJob.OutputFilePath);
-        var fileName = $"{id}.xkt";
-        return File(stream, "application/octet-stream", fileName);
+        return File(result.Stream, result.ContentType, result.FileName);
     }
 
     /// <summary>

@@ -15,6 +15,6 @@ public class ConversionJobDto
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
-    public string? OutputFilePath { get; set; }
+    public bool HasOutput { get; set; }
     public string? ErrorMessage { get; set; }
 }

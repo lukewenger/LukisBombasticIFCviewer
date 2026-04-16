@@ -7,4 +7,5 @@ public interface ITokenService
 {
     string GenerateAccessToken(Guid userId, string username, string email, string role);
     string GenerateRefreshToken();
+    string HashToken(string token);
 }

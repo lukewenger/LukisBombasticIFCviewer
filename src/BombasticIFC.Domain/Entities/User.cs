@@ -12,7 +12,9 @@ public class User : BaseEntity
     public string PasswordHash { get; private set; }
     public UserRole Role { get; private set; }
     public bool IsActive { get; private set; }
-    
+    public string? RefreshTokenHash { get; private set; }
+    public DateTime? RefreshTokenExpiresAt { get; private set; }
+
     // Relationships
     public ICollection<IfcModel> Models { get; private set; }
 
@@ -78,6 +80,20 @@ public class User : BaseEntity
     public void Activate()
     {
         IsActive = true;
+        MarkAsUpdated();
+    }
+
+    public void SetRefreshToken(string tokenHash, DateTime expiresAt)
+    {
+        RefreshTokenHash = tokenHash;
+        RefreshTokenExpiresAt = expiresAt;
+        MarkAsUpdated();
+    }
+
+    public void ClearRefreshToken()
+    {
+        RefreshTokenHash = null;
+        RefreshTokenExpiresAt = null;
         MarkAsUpdated();
     }
 }

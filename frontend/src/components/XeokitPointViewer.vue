@@ -79,7 +79,7 @@ const { pendingWarning, checkBeforeLoad, confirmWarning, dismissWarning } = useM
 const {
   pickedPoints,
   pointPickingMode,
-  pointRadius,
+  pointSize,
   pointTransparency,
   setViewer,
   setPointCtors,
@@ -158,7 +158,6 @@ async function bootViewer() {
     renderPointCloud()
 
     if (props.initialModels.length > 0) {
-      // Load all initial models in parallel
       await loadModels(props.initialModels, props.fallbackSrc)
     }
   }
@@ -187,7 +186,7 @@ onUnmounted(() => {
   destroyViewer()
 })
 
-watch(pointRadius, () => {
+watch(pointSize, () => {
   renderPointCloud()
 })
 
@@ -197,46 +196,93 @@ watch(pointTransparency, () => {
 </script>
 
 <template>
-  <div ref="viewerRootRef" class="relative bg-gray-100 dark:bg-gray-900">
-    <div v-if="viewerLoading" :class="[props.canvasHeightClass, 'flex items-center justify-center bg-gray-100 dark:bg-gray-900']">
-      <div class="text-center">
-        <div class="animate-spin h-10 w-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-        <p class="text-gray-500 dark:text-gray-400">Modell wird geladen...</p>
+  <!--
+    Outer wrapper: flex-row so the canvas sits left and the right side-panel
+    stack sits in a fixed-width column beside it.  The canvas fills all
+    remaining width via flex-1.
+  -->
+  <div ref="viewerRootRef" class="flex bg-gray-100 dark:bg-gray-900">
+
+    <!-- ─── Canvas area ──────────────────────────────────────────────── -->
+    <div class="relative flex-1 min-w-0">
+      <!-- Loading state -->
+      <div
+        v-if="viewerLoading"
+        :class="[props.canvasHeightClass, 'flex items-center justify-center bg-gray-100 dark:bg-gray-900']"
+      >
+        <div class="text-center">
+          <div class="animate-spin h-10 w-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4" />
+          <p class="text-gray-500 dark:text-gray-400">Modell wird geladen...</p>
+        </div>
+      </div>
+
+      <!-- Error state -->
+      <div
+        v-if="viewerError"
+        :class="[props.canvasHeightClass, 'flex items-center justify-center bg-gray-100 dark:bg-gray-900']"
+      >
+        <p class="text-red-700 dark:text-red-400">{{ viewerError }}</p>
+      </div>
+
+      <!-- xeokit canvas -->
+      <canvas
+        ref="canvasRef"
+        class="w-full block"
+        :class="viewerLoading || viewerError ? 'h-0' : props.canvasHeightClass"
+      />
+
+      <!-- Model list panel — top-left overlay inside the canvas area -->
+      <div v-if="!viewerLoading && !viewerError" data-wheel-scroll-panel="true">
+        <ModelListPanel
+          :loaded-models="loadedModels"
+          :fallback-src="props.fallbackSrc"
+          @toggle-visible="(id, visible) => setModelVisible(id, visible)"
+          @unload="unloadModel"
+          @add-model="handleAddModel"
+        />
+      </div>
+
+      <!-- Entity attributes panel — top-right overlay inside the canvas area.
+           It is conditionally rendered (only when an entity is selected) so it
+           never clashes with the PointPickerPanel which lives outside this div. -->
+      <div data-wheel-scroll-panel="true">
+        <EntityAttributesPanel
+          :selected-entity-id="selectedEntityId"
+          :selected-attributes="selectedAttributes"
+          @clear-selection="clearSelection"
+        />
+      </div>
+
+      <!-- RAM overload warning modal -->
+      <MemoryWarningModal
+        v-if="pendingWarning"
+        :warning="pendingWarning"
+        @confirm="confirmWarning"
+        @dismiss="dismissWarning"
+      />
+
+      <!-- Point picker floating widget — bottom-right overlay inside the canvas area -->
+      <div
+        v-if="!viewerLoading && !viewerError"
+        class="absolute bottom-4 right-4 z-10"
+      >
+        <PointPickerPanel
+          :point-picking-mode="pointPickingMode"
+          :picked-points="pickedPoints"
+          :point-size="pointSize"
+          :point-transparency="pointTransparency"
+          @toggle-picking="togglePicking"
+          @open-csv="openCsvPicker"
+          @export-csv="exportCsv"
+          @clear-points="clearPickedPoints"
+          @update:point-size="pointSize = $event"
+          @update:point-transparency="pointTransparency = $event"
+        />
       </div>
     </div>
 
-    <div v-if="viewerError" :class="[props.canvasHeightClass, 'flex items-center justify-center bg-gray-100 dark:bg-gray-900']">
-      <p class="text-red-700 dark:text-red-400">{{ viewerError }}</p>
-    </div>
 
-    <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : props.canvasHeightClass"></canvas>
-
-    <!-- Model list panel (top-left overlay) -->
-    <div v-if="!viewerLoading && !viewerError" data-wheel-scroll-panel="true">
-      <ModelListPanel
-        :loaded-models="loadedModels"
-        :fallback-src="props.fallbackSrc"
-        @toggle-visible="(id, visible) => setModelVisible(id, visible)"
-        @unload="unloadModel"
-        @add-model="handleAddModel"
-      />
-    </div>
-
-    <div data-wheel-scroll-panel="true">
-      <PointPickerPanel
-        :point-picking-mode="pointPickingMode"
-        :picked-points="pickedPoints"
-        :point-radius="pointRadius"
-        :point-transparency="pointTransparency"
-        @toggle-picking="togglePicking"
-        @open-csv="openCsvPicker"
-        @export-csv="exportCsv"
-        @clear-points="clearPickedPoints"
-        @update:point-radius="pointRadius = $event"
-        @update:point-transparency="pointTransparency = $event"
-      />
-    </div>
-
+    <!-- Hidden CSV file input -->
     <input
       ref="csvInputRef"
       type="file"
@@ -244,21 +290,5 @@ watch(pointTransparency, () => {
       class="hidden"
       @change="onCsvInputChange"
     >
-
-    <div data-wheel-scroll-panel="true">
-      <EntityAttributesPanel
-        :selected-entity-id="selectedEntityId"
-        :selected-attributes="selectedAttributes"
-        @clear-selection="clearSelection"
-      />
-    </div>
-
-    <!-- RAM overload warning modal -->
-    <MemoryWarningModal
-      v-if="pendingWarning"
-      :warning="pendingWarning"
-      @confirm="confirmWarning"
-      @dismiss="dismissWarning"
-    />
   </div>
 </template>

@@ -1,0 +1,625 @@
+openapi: 3.0.3
+info:
+  title: BombasticIFC API — Audit Snapshot
+  description: |
+    OpenAPI 3.0 fragment documenting all endpoints discovered during the
+    Security & API Completeness Audit of 2026-04-16.
+
+    **Note:** This document reflects the current implementation as audited.
+    Endpoints marked with `x-audit-status: missing` are not yet implemented.
+    Security findings are annotated per operation.
+
+    Backend: ASP.NET Core 8, C#, PostgreSQL, EF Core, MediatR.
+    Authentication: JWT Bearer (HMAC-SHA256).
+  version: "audit-2026-04-16"
+  contact:
+    name: IFCCM Platform Team
+
+servers:
+  - url: http://localhost:5000
+    description: Local development
+  - url: https://api.bombasticIFC.example.com
+    description: Production (example)
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT access token obtained from POST /api/auth/login or
+        POST /api/auth/register. Include as Authorization: Bearer <token>.
+
+  schemas:
+
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+          example: johndoe
+          x-audit-note: No length or format validation enforced
+        email:
+          type: string
+          format: email
+          example: john@example.com
+          x-audit-note: No [EmailAddress] validation annotation present
+        password:
+          type: string
+          format: password
+          example: "S3cur3P@ss!"
+          x-audit-note: No minimum length or complexity policy enforced
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: johndoe
+        password:
+          type: string
+          format: password
+          example: "S3cur3P@ss!"
+
+    AuthResponseDto:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [User, Admin]
+        accessToken:
+          type: string
+          description: JWT access token, signed HMAC-SHA256, default 60 min expiry
+        refreshToken:
+          type: string
+          description: >
+            AUDIT: This field is returned but the refresh flow is NOT implemented.
+            The token is never persisted and cannot be used. See CRITICAL-3.
+          x-audit-status: non-functional
+          x-audit-severity: CRITICAL
+
+    UserProfileDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [User, Admin]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    IfcModelDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          example: building.ifc
+        fileSizeBytes:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [Pending, Processing, Ready, Failed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        xktOutputUrl:
+          type: string
+          nullable: true
+          description: Relative URL to GET /api/models/{id}/output. Null until a conversion completes.
+          example: /api/models/abc.../output
+        originalFileUrl:
+          type: string
+          nullable: true
+          description: Relative URL to GET /api/models/{id}/original.
+          example: /api/models/abc.../original
+        conversionError:
+          type: string
+          nullable: true
+          description: Error message from the most recent failed conversion job.
+
+    ModelMetadataDto:
+      type: object
+      properties:
+        ifcSchema:
+          type: string
+          example: IFC4
+        projectName:
+          type: string
+        applicationName:
+          type: string
+        numberOfElements:
+          type: integer
+        elementTypeCounts:
+          type: object
+          additionalProperties:
+            type: integer
+
+    ConversionJobDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        modelId:
+          type: string
+          format: uuid
+        targetFormat:
+          type: string
+          enum: [XKT]
+        status:
+          type: string
+          enum: [Queued, Processing, Completed, Failed]
+        progressPercentage:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >
+            AUDIT: Always 0 until job completes (then 100). No incremental progress.
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        outputFilePath:
+          type: string
+          nullable: true
+          description: >
+            AUDIT: This field exposes an absolute server-side filesystem path.
+            Information disclosure vulnerability. See CRITICAL-2. Should be removed.
+          x-audit-status: should-be-removed
+          x-audit-severity: CRITICAL
+        errorMessage:
+          type: string
+          nullable: true
+
+    CreateConversionRequest:
+      type: object
+      required: [modelId, targetFormat]
+      properties:
+        modelId:
+          type: string
+          format: uuid
+        targetFormat:
+          type: string
+          enum: [XKT]
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+paths:
+
+  # ── AUTH ────────────────────────────────────────────────────────────────
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      operationId: authRegister
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: >
+            Registration successful. Returns auth tokens.
+            AUDIT: Should return 201 Created (LOW-1).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseDto'
+        '409':
+          description: Username or email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-audit-issues:
+        - severity: LOW
+          description: Returns HTTP 200 instead of 201 Created
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate with username and password
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful. Returns auth tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseDto'
+        '401':
+          description: Invalid credentials or account deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user profile
+      operationId: authGetCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileDto'
+        '401':
+          description: Not authenticated or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout and invalidate refresh token
+      operationId: authLogout
+      x-audit-status: missing
+      x-audit-severity: HIGH
+      description: >
+        AUDIT: This endpoint is NOT implemented. No token revocation mechanism exists.
+        See HIGH-1 in consolidated_review_2026-04-16.md.
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Logged out successfully
+        '401':
+          description: Not authenticated
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      operationId: authRefresh
+      x-audit-status: missing
+      x-audit-severity: CRITICAL
+      description: >
+        AUDIT: This endpoint is NOT implemented. The refresh token returned by login/register
+        is never persisted and cannot be validated. See CRITICAL-3.
+      security: []
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseDto'
+        '401':
+          description: Invalid or expired refresh token
+
+  # ── MODELS ──────────────────────────────────────────────────────────────
+
+  /api/models:
+    get:
+      tags: [Models]
+      summary: List all IFC models
+      operationId: modelsGetAll
+      x-audit-note: No [Authorize] attribute — unauthenticated access allowed (CRITICAL-1)
+      security: []
+      responses:
+        '200':
+          description: >
+            List of all models. AUDIT: No pagination (LOW-2). No authentication (CRITICAL-1).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IfcModelDto'
+
+  /api/models/upload:
+    post:
+      tags: [Models]
+      summary: Upload a new IFC model file
+      operationId: modelsUpload
+      x-audit-note: No [Authorize] attribute — unauthenticated access allowed (CRITICAL-1)
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: IFC file (.ifc extension required)
+      responses:
+        '201':
+          description: Model uploaded successfully
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created model resource
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IfcModelDto'
+        '400':
+          description: No file provided or file is not a .ifc file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-audit-issues:
+        - severity: CRITICAL
+          description: No authentication required
+        - severity: HIGH
+          description: No explicit file size limit configured
+        - severity: MEDIUM
+          description: Only extension check, no MIME/magic-byte validation
+
+  /api/models/{id}:
+    get:
+      tags: [Models]
+      summary: Get a model by ID
+      operationId: modelsGetById
+      x-audit-note: No [Authorize] attribute (CRITICAL-1)
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Model found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IfcModelDto'
+        '404':
+          description: Model not found
+
+    delete:
+      tags: [Models]
+      summary: Delete a model and all associated files and conversion jobs
+      operationId: modelsDelete
+      x-audit-note: No [Authorize] attribute (CRITICAL-1)
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Model deleted successfully
+        '404':
+          description: Model not found
+      x-audit-issues:
+        - severity: CRITICAL
+          description: No authentication or authorization — any caller can delete any model
+
+  /api/models/{id}/original:
+    get:
+      tags: [Models]
+      summary: Download the original IFC source file
+      operationId: modelsGetOriginal
+      x-audit-note: No [Authorize] attribute (CRITICAL-1). Bypasses application layer (MEDIUM-6).
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: IFC file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Model or file not found
+
+  /api/models/{id}/output:
+    get:
+      tags: [Models]
+      summary: Download the converted XKT output file
+      operationId: modelsGetOutput
+      x-audit-note: No [Authorize] attribute (CRITICAL-1). Bypasses application layer (MEDIUM-6).
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: XKT file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No completed conversion output available
+
+  # ── CONVERSIONS ─────────────────────────────────────────────────────────
+
+  /api/conversions:
+    post:
+      tags: [Conversions]
+      summary: Create a new conversion job
+      operationId: conversionsCreate
+      x-audit-note: No [Authorize] attribute (CRITICAL-1)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversionRequest'
+      responses:
+        '201':
+          description: Conversion job created and queued
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionJobDto'
+        '400':
+          description: Invalid request (model not found, unsupported format)
+      x-audit-issues:
+        - severity: CRITICAL
+          description: No authentication required
+        - severity: MEDIUM
+          description: No job deduplication — multiple queued jobs can be created for the same model
+
+  /api/conversions/{id}:
+    get:
+      tags: [Conversions]
+      summary: Get the status of a conversion job
+      operationId: conversionsGetById
+      x-audit-note: No [Authorize] attribute (CRITICAL-1)
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversion job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionJobDto'
+        '404':
+          description: Job not found
+      x-audit-issues:
+        - severity: CRITICAL
+          description: outputFilePath field exposes absolute server-side filesystem path
+
+  /api/conversions/{id}/retry:
+    post:
+      tags: [Conversions]
+      summary: Retry a failed conversion job
+      operationId: conversionsRetry
+      x-audit-status: missing
+      x-audit-severity: LOW
+      description: >
+        AUDIT: This endpoint is NOT implemented. Failed jobs must be re-created
+        via POST /api/conversions. See LOW-4.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job re-queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionJobDto'
+        '404':
+          description: Job not found
+        '422':
+          description: Job is not in a failed state
+
+  # ── HEALTH ──────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [Infrastructure]
+      summary: Health check
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time

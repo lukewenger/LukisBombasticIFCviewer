@@ -15,4 +15,5 @@ public interface IUserRepository
     Task UpdateAsync(User user, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
     Task<bool> ExistsAsync(string username, CancellationToken cancellationToken = default);
+    Task<User?> GetByRefreshTokenHashAsync(string tokenHash, CancellationToken cancellationToken = default);
 }

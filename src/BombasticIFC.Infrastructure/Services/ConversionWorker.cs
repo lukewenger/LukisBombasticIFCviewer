@@ -28,6 +28,16 @@ public class ConversionWorker : BackgroundService
     {
         _logger.LogInformation("ConversionWorker started.");
 
+        // On startup: recover jobs that were stuck in Processing (e.g. from a previous crash)
+        try
+        {
+            await RecoverOrphanedJobsAsync(stoppingToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Error during orphaned job recovery on startup.");
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -141,4 +151,27 @@ public class ConversionWorker : BackgroundService
 
     private static bool IsTransient(Exception ex)
         => ex is TimeoutException || ex is IOException;
+
+    private async Task RecoverOrphanedJobsAsync(CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var jobRepository = scope.ServiceProvider.GetRequiredService<IConversionJobRepository>();
+        var modelRepository = scope.ServiceProvider.GetRequiredService<IIfcModelRepository>();
+
+        var orphanedJobs = await jobRepository.GetByStatusAsync(ConversionStatus.Processing, stoppingToken);
+        foreach (var job in orphanedJobs)
+        {
+            _logger.LogWarning("Recovering orphaned job {JobId} (was Processing). Resetting to Queued.", job.Id);
+            job.ResetToQueued();
+            await jobRepository.UpdateAsync(job, stoppingToken);
+
+            var model = await modelRepository.GetByIdAsync(job.ModelId, stoppingToken);
+            if (model != null)
+            {
+                model.UpdateStatus(Domain.Enums.ModelStatus.Uploaded);
+                await modelRepository.UpdateAsync(model, stoppingToken);
+            }
+        }
+        _logger.LogInformation("Orphaned job recovery complete. Recovered {Count} jobs.", orphanedJobs.Count());
+    }
 }

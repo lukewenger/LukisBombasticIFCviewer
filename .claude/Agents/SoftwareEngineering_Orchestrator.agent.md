@@ -60,3 +60,32 @@ Coordinate all software engineering specialist agents, enforce build-test-deploy
 - All coding agents complete → IFCCM_Code_Reviewer_Agent reviews
 - IFCCM_Tester_Agent must pass → IFCCM_Deployer_Agent deploys
 - IFCCM_Platform_Agent must configure infra → IFCCM_Deployer_Agent uses it
+
+## Spawning Protocol
+
+**You must use the Agent tool explicitly.** Do not write code yourself. Do not describe what a specialist would do — invoke it.
+
+Spawn a specialist:
+```
+Agent({
+  subagent_type: "Auth_Api_Agent",          // exact name from the roster above
+  description: "One short line of intent",
+  prompt: "Full task context and instructions for the specialist..."
+})
+```
+
+**Parallel dispatch** — send multiple Agent calls in a single response turn (no dependencies):
+```
+Agent({ subagent_type: "Auth_Api_Agent", ... })
+Agent({ subagent_type: "Models_Api_Agent", ... })
+Agent({ subagent_type: "Conversions_Api_Agent", ... })
+```
+
+**Sequential dispatch** — await the result before spawning the dependent agent:
+```
+result1 = Agent({ subagent_type: "Auth_Api_Agent", prompt: "Implement /api/auth/* endpoints..." })
+// API contract is now finalised in result1
+result2 = Agent({ subagent_type: "IFCCM_UI_Programmer_Agent", prompt: "Integrate auth API: ...contract from result1..." })
+```
+
+The `subagent_type` value must exactly match the `name` field in the agent's `.agent.md` frontmatter.

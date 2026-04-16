@@ -67,4 +67,10 @@ public class UserRepository : IUserRepository
     {
         return await _context.Users.AnyAsync(u => u.Username == username, cancellationToken);
     }
+
+    public async Task<User?> GetByRefreshTokenHashAsync(string tokenHash, CancellationToken cancellationToken = default)
+    {
+        return await _context.Users
+            .FirstOrDefaultAsync(u => u.RefreshTokenHash == tokenHash, cancellationToken);
+    }
 }

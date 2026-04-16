@@ -2,6 +2,7 @@ using BombasticIFC.Application.DTOs;
 using BombasticIFC.Application.UseCases.Conversion;
 using BombasticIFC.Domain.Enums;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BombasticIFC.API.Controllers;
@@ -10,6 +11,7 @@ namespace BombasticIFC.API.Controllers;
 /// Controller for conversion operations
 /// </summary>
 [ApiController]
+[Authorize]
 [Route("api/[controller]")]
 public class ConversionsController : ControllerBase
 {
@@ -57,6 +59,28 @@ public class ConversionsController : ControllerBase
             return NotFound();
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Retry a failed conversion job
+    /// </summary>
+    [HttpPost("{id}/retry")]
+    [ProducesResponseType(typeof(ConversionJobDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ConversionJobDto>> RetryConversionJob(Guid id)
+    {
+        try
+        {
+            var result = await _mediator.Send(new RetryConversionJobCommand(id));
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex.Message.Contains("not found")
+                ? NotFound(new { message = ex.Message })
+                : BadRequest(new { message = ex.Message });
+        }
     }
 }
 

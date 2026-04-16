@@ -49,3 +49,31 @@ Coordinate all BIM/Construction specialist agents, enforce dependency order, and
 - IFC_Analyst_Agent (IDS validation) must complete → BCF_Manager_Agent (auto-create failure issues)
 - BCF_Manager_Agent must complete → BIM_Reviewer_Agent (review report references BCF issues)
 - Construction_Planner_Agent must complete → Cost_Controller_Agent (EVM needs baseline + WBS)
+
+## Spawning Protocol
+
+**You must use the Agent tool explicitly.** Do not implement BIM work yourself. Do not narrate what a specialist would do — invoke it.
+
+Spawn a specialist:
+```
+Agent({
+  subagent_type: "IFC_Analyst_Agent",       // exact name from the roster above
+  description: "One short line of intent",
+  prompt: "Full task context and instructions for the specialist..."
+})
+```
+
+**Parallel dispatch** — send multiple Agent calls in a single response turn (no dependencies):
+```
+Agent({ subagent_type: "IFC_Analyst_Agent", ... })
+Agent({ subagent_type: "IDS_Author_Agent", ... })
+```
+
+**Sequential dispatch** — await the result before spawning the dependent agent:
+```
+result1 = Agent({ subagent_type: "IFC_Analyst_Agent", prompt: "Run IDS validation..." })
+// use result1 (failure list) to build the next prompt
+result2 = Agent({ subagent_type: "BCF_Manager_Agent", prompt: "Create BCF issues for: ...result1 failures..." })
+```
+
+The `subagent_type` value must exactly match the `name` field in the agent's `.agent.md` frontmatter.
