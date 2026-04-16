@@ -1,19 +1,30 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useXeokitViewer } from '../composables/useXeokitViewer'
 import { usePointPicker } from '../composables/usePointPicker'
+import { useMemoryGuard } from '../composables/useMemoryGuard'
 import { downloadPickedPointsCsv, importPointsFromCsv } from '../composables/usePointCsv'
 import PointPickerPanel from './PointPickerPanel.vue'
 import EntityAttributesPanel from './EntityAttributesPanel.vue'
+import ModelListPanel from './ModelListPanel.vue'
+import MemoryWarningModal from './MemoryWarningModal.vue'
+import type { IfcModelDto } from '../types'
+
+export interface ModelEntry {
+  id: string
+  src: string
+  label: string
+  fileSizeBytes?: number
+}
 
 const props = withDefaults(
   defineProps<{
-    modelSrc?: string | null
+    initialModels?: ModelEntry[]
     fallbackSrc?: string
     canvasHeightClass?: string
   }>(),
   {
-    modelSrc: null,
+    initialModels: () => [],
     fallbackSrc: '/samples/Duplex.xkt',
     canvasHeightClass: 'h-[60vh]',
   }
@@ -51,11 +62,19 @@ const {
   viewerError,
   selectedEntityId,
   selectedAttributes,
+  loadedModels,
+  totalLoadedBytes,
   clearSelection,
   setSelectedEntity,
   initializeViewer,
+  loadModel,
+  loadModels,
+  unloadModel,
+  setModelVisible,
   destroyViewer,
 } = useXeokitViewer()
+
+const { pendingWarning, checkBeforeLoad, confirmWarning, dismissWarning } = useMemoryGuard()
 
 const {
   pickedPoints,
@@ -120,8 +139,6 @@ async function bootViewer() {
 
   const viewerInstance = await initializeViewer(
     canvasRef.value,
-    props.modelSrc,
-    props.fallbackSrc,
     (pickResult) => {
       if (pointPickingMode.value) {
         addPickedPoint(pickResult)
@@ -139,7 +156,19 @@ async function bootViewer() {
   if (viewerInstance) {
     setViewer(viewerInstance)
     renderPointCloud()
+
+    if (props.initialModels.length > 0) {
+      // Load all initial models in parallel
+      await loadModels(props.initialModels, props.fallbackSrc)
+    }
   }
+}
+
+async function handleAddModel(model: IfcModelDto) {
+  if (!model.xktOutputUrl) return
+  const proceed = await checkBeforeLoad(model.fileName, model.fileSizeBytes, totalLoadedBytes.value)
+  if (!proceed) return
+  await loadModel(model.id, model.xktOutputUrl, model.fileName, props.fallbackSrc, model.fileSizeBytes)
 }
 
 onMounted(() => {
@@ -156,10 +185,6 @@ onUnmounted(() => {
   viewerRootRef.value?.removeEventListener('wheel', handleViewerWheel, true)
   destroyPointCloud()
   destroyViewer()
-})
-
-watch(() => props.modelSrc, () => {
-  bootViewer()
 })
 
 watch(pointRadius, () => {
@@ -185,6 +210,17 @@ watch(pointTransparency, () => {
     </div>
 
     <canvas ref="canvasRef" class="w-full block" :class="viewerLoading || viewerError ? 'h-0' : props.canvasHeightClass"></canvas>
+
+    <!-- Model list panel (top-left overlay) -->
+    <div v-if="!viewerLoading && !viewerError" data-wheel-scroll-panel="true">
+      <ModelListPanel
+        :loaded-models="loadedModels"
+        :fallback-src="props.fallbackSrc"
+        @toggle-visible="(id, visible) => setModelVisible(id, visible)"
+        @unload="unloadModel"
+        @add-model="handleAddModel"
+      />
+    </div>
 
     <div data-wheel-scroll-panel="true">
       <PointPickerPanel
@@ -216,5 +252,13 @@ watch(pointTransparency, () => {
         @clear-selection="clearSelection"
       />
     </div>
+
+    <!-- RAM overload warning modal -->
+    <MemoryWarningModal
+      v-if="pendingWarning"
+      :warning="pendingWarning"
+      @confirm="confirmWarning"
+      @dismiss="dismissWarning"
+    />
   </div>
 </template>

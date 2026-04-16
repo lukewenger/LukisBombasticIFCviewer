@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { LayoutDashboard, Upload, RefreshCw } from 'lucide-vue-next'
+import { LayoutDashboard, Upload, RefreshCw, Eye, X } from 'lucide-vue-next'
 import type { IfcModelDto } from '../types'
 import { useToasts } from '../composables/useToasts'
 import { useModelPolling } from '../composables/useModelPolling'
@@ -17,6 +17,30 @@ const authStore = useAuthStore()
 const models = ref<IfcModelDto[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
+
+// --- Multi-select ---
+const selectedIds = ref<Set<string>>(new Set())
+
+const selectedCount = computed(() => selectedIds.value.size)
+const canViewTogether = computed(() => selectedCount.value >= 2)
+
+function toggleSelect(model: IfcModelDto) {
+  const next = new Set(selectedIds.value)
+  if (next.has(model.id)) {
+    next.delete(model.id)
+  } else {
+    next.add(model.id)
+  }
+  selectedIds.value = next
+}
+
+function viewSelectedTogether() {
+  const ids = [...selectedIds.value]
+  if (ids.length === 0) return
+  const [first, ...rest] = ids
+  const query = rest.length > 0 ? `?also=${rest.join(',')}` : ''
+  router.push(`/viewer/${first}${query}`)
+}
 
 // --- Composables ---
 const { toasts, showToast, removeToast, clearAll } = useToasts()
@@ -33,11 +57,24 @@ async function fetchModels() {
 }
 
 function openModelInViewer(model: IfcModelDto) {
-  router.push(`/viewer/${model.id}`)
+  if (selectedCount.value === 0) {
+    // No selection active — open this model directly
+    router.push(`/viewer/${model.id}`)
+    return
+  }
+  // Selection is active — add this model to the selection and open all together
+  const next = new Set(selectedIds.value)
+  next.add(model.id)
+  selectedIds.value = next
+  const ids = [...selectedIds.value]
+  const [first, ...rest] = ids
+  const query = rest.length > 0 ? `?also=${rest.join(',')}` : ''
+  router.push(`/viewer/${first}${query}`)
 }
 
 async function handleDeleteModel(model: IfcModelDto) {
   await deleteModel(model)
+  selectedIds.value.delete(model.id)
 }
 
 onMounted(async () => {
@@ -76,12 +113,48 @@ onUnmounted(() => {
         >
           <RefreshCw class="w-5 h-5" />
         </button>
+
         <button
           class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors min-h-[44px]"
           @click="router.push('/upload')"
         >
           <Upload class="w-4 h-4" />
           Hochladen
+        </button>
+      </div>
+    </div>
+
+    <!-- Multi-select action bar — shown when at least one model is selected -->
+    <div
+      v-if="selectedCount > 0"
+      class="flex items-center justify-between mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl"
+    >
+      <p class="text-sm text-blue-700 dark:text-blue-300">
+        {{ selectedCount }} Modell{{ selectedCount !== 1 ? 'e' : '' }} ausgewählt
+      </p>
+      <div class="flex items-center gap-2">
+        <button
+          class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
+          @click="selectedIds = new Set()"
+        >
+          Auswahl aufheben
+        </button>
+        <button
+          class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-colors min-h-[36px]"
+          :class="canViewTogether
+            ? 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'"
+          @click="viewSelectedTogether"
+        >
+          <Eye class="w-4 h-4" />
+          {{ canViewTogether ? `Ausgewählte anzeigen (${selectedCount})` : 'Anzeigen' }}
+        </button>
+        <button
+          class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          title="Auswahl aufheben"
+          @click="selectedIds = new Set()"
+        >
+          <X class="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -123,9 +196,11 @@ onUnmounted(() => {
         :models="models"
         :deleting-ids="isDeleting"
         :retrying-ids="isRetrying"
+        :selected-ids="selectedIds"
         @view="openModelInViewer"
         @retry="retryConversion"
         @delete="handleDeleteModel"
+        @toggle-select="toggleSelect"
       />
     </div>
   </div>
