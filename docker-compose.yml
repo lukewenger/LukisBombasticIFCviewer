@@ -45,6 +45,10 @@ services:
     container_name: bombasticifccluster-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      # PORT=80 makes Kestrel bind to port 80 inside this container.
+      # Required because aspnet:8.0 defaults to ASPNETCORE_HTTP_PORTS=8080,
+      # but the nginx reverse-proxy and healthcheck both target api:80.
+      - PORT=80
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-bombasticifcdb};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - JwtSettings__Secret=${JWT_SECRET:?JWT_SECRET must be set in .env}
       - JwtSettings__Issuer=BombasticIFC
