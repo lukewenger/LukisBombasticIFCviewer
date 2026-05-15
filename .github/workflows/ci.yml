@@ -224,7 +224,6 @@ jobs:
   # One-time VM setup:
   #   1. Repo → Settings → Actions → Runners → New self-hosted runner
   #   2. Follow the Linux install instructions on that page
-  #   3. docker login ghcr.io -u <user> -p <PAT with read:packages>
   # ─────────────────────────────────────────────
   deploy:
     name: Deploy to VM (Minikube)
@@ -232,9 +231,20 @@ jobs:
     needs: push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull new images from GHCR
         run: |
