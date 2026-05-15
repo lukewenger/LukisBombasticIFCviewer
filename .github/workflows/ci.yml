@@ -215,16 +215,23 @@ jobs:
           echo "Git SHA: ${{ github.sha }}"
 
   # ─────────────────────────────────────────────
-  # Job 4: Deploy — rolling update on VM (K3s)
+  # Job 4: Deploy — rolling update on VM
   # SSHs into the VM, pulls latest manifests,
-  # applies them, and triggers a rolling restart
-  # so K3s pulls the new :latest images from GHCR.
+  # upserts secrets, applies them, and triggers
+  # a rolling restart so kubectl pulls new :latest
+  # images from GHCR.
   # ─────────────────────────────────────────────
   deploy:
-    name: Deploy to VM (K3s)
+    name: Deploy to VM
     runs-on: ubuntu-latest
     needs: push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    env:
+      GHCR_USERNAME: ${{ github.repository_owner }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
     steps:
       - name: Deploy via SSH
@@ -233,9 +240,7 @@ jobs:
           host: ${{ secrets.VM_SSH_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
           key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          # Adjust the repo path below if the checkout lives elsewhere on the VM.
-          # K3s ships kubectl at /usr/local/bin/kubectl — no sudo needed if the
-          # VM user's KUBECONFIG points at /etc/rancher/k3s/k3s.yaml.
+          envs: GHCR_USERNAME,GHCR_PAT,DB_PASSWORD,JWT_SECRET
           script: |
             set -e
 
@@ -243,8 +248,29 @@ jobs:
             cd ~/LukisBombasticIFCviewer
             git pull origin main
 
-            echo "=== Applying Kubernetes manifests ==="
+            echo "=== Ensuring namespace exists ==="
             kubectl apply -f kubernetes/namespace.yaml
+
+            echo "=== Upserting GHCR pull secret ==="
+            kubectl create secret docker-registry ghcr-login-secret \
+              --docker-server=ghcr.io \
+              --docker-username="$GHCR_USERNAME" \
+              --docker-password="$GHCR_PAT" \
+              --namespace=bombasticifccluster \
+              --dry-run=client -o yaml | kubectl apply -f -
+
+            echo "=== Upserting app secrets ==="
+            DB_CONN="Host=postgres-service;Port=5432;Database=bombasticifcdb;Username=postgres;Password=${DB_PASSWORD}"
+            kubectl create secret generic bombasticifccluster-secrets \
+              --from-literal=postgres-user=postgres \
+              --from-literal=postgres-password="$DB_PASSWORD" \
+              --from-literal=postgres-db=bombasticifcdb \
+              --from-literal=connection-string="$DB_CONN" \
+              --from-literal=jwt-secret="$JWT_SECRET" \
+              --namespace=bombasticifccluster \
+              --dry-run=client -o yaml | kubectl apply -f -
+
+            echo "=== Applying Kubernetes manifests ==="
             kubectl apply -f kubernetes/configmap.yaml
             kubectl apply -f kubernetes/persistent-volumes.yaml
             kubectl apply -f kubernetes/postgres-deployment.yaml
