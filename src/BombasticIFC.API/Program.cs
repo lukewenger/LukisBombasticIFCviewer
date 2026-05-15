@@ -139,37 +139,31 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Apply EF Core migrations automatically on startup
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
-}
+// ── HTTP pipeline ────────────────────────────────────────────────────────────
+// Register all middleware and routes BEFORE touching the database.
+// This guarantees /health is always reachable even when the DB is misconfigured,
+// so Railway's healthcheck can pass and the real error shows up in the logs.
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-// Always expose Swagger (accessible via NodePort / ingress in all environments)
+// Always expose Swagger (dev + prod — accessible via NodePort / ingress)
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseCors("AllowAll");
-
 app.UseRateLimiter();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 
-// Health check endpoint
+// Health endpoint — intentionally DB-agnostic.
+// Returning 200 here means "the process is alive and listening".
+// A failing DB will surface in API call errors, not in this probe.
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-// Apply migrations and seed database
+// ── Database startup ─────────────────────────────────────────────────────────
+// Single migration + seed block with full error containment.
+// If the DB is unreachable (wrong connection string, Postgres not ready) the
+// exception is logged and swallowed so app.Run() is always reached.
+// Missing ConnectionStrings__DefaultConnection is the most common Railway cause.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -179,17 +173,19 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.Migrate();
         logger.LogInformation("Database migrations applied successfully");
+
+        await DatabaseSeeder.SeedAsync(
+            db,
+            builder.Configuration.GetValue<string>("StoragePath") ?? "/data/storage",
+            logger);
     }
     catch (Exception ex)
     {
-        logger.LogWarning(ex, "Migration failed, falling back to EnsureCreated");
-        db.Database.EnsureCreated();
+        logger.LogCritical(ex,
+            "Database startup failed. The app will run in degraded mode — " +
+            "all DB-backed endpoints will return errors until the connection is fixed. " +
+            "Check ConnectionStrings__DefaultConnection (Railway: use PGHOST/PGPORT/PGUSER/PGPASSWORD variables).");
     }
-
-    await DatabaseSeeder.SeedAsync(
-        db,
-        builder.Configuration.GetValue<string>("StoragePath") ?? "/data/storage",
-        logger);
 }
 
 app.Run();
