@@ -21,6 +21,8 @@ spec:
         app: bombasticifccluster-api
     spec:
       terminationGracePeriodSeconds: 120
+      imagePullSecrets:
+      - name: ghcr-login-secret
       containers:
       - name: api
         image: ghcr.io/lukewenger/bombasticifccluster-api:latest

@@ -232,6 +232,12 @@ jobs:
     needs: push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    env:
+      GHCR_USERNAME: ${{ github.repository_owner }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

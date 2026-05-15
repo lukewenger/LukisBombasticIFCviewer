@@ -21,9 +21,16 @@ builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssembly(typeof(BombasticIFC.Application.UseCases.Models.UploadModelCommand).Assembly));
 
 // Add Database
+// Railway injects DATABASE_URL (postgres://user:pass@host:port/db).
+// Npgsql accepts this URL format directly, so prefer it over the
+// key=value connection string — avoids special-character escaping issues.
+var connectionString =
+    Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? builder.Configuration.GetConnectionString("DefaultConnection");
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
+        connectionString,
         b => b.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
 
 builder.Services.AddScoped<IApplicationDbContext>(provider => 
