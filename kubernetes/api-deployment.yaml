@@ -24,7 +24,7 @@ spec:
       containers:
       - name: api
         image: ghcr.io/lukewenger/bombasticifccluster-api:latest
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
         env:
