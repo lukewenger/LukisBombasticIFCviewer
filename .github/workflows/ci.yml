@@ -215,15 +215,20 @@ jobs:
           echo "Git SHA: ${{ github.sha }}"
 
   # ─────────────────────────────────────────────
-  # Job 4: Deploy — rolling update on VM
-  # SSHs into the VM, pulls latest manifests,
-  # upserts secrets, applies them, and triggers
-  # a rolling restart so kubectl pulls new :latest
-  # images from GHCR.
+  # Job 4: Deploy — rolling update on VM (Minikube)
+  # Runs directly on the self-hosted runner installed
+  # on the VM — no SSH or inbound connectivity needed.
+  # The runner phones home to GitHub and executes the
+  # job locally where Minikube and kubectl already live.
+  #
+  # One-time VM setup:
+  #   1. Repo → Settings → Actions → Runners → New self-hosted runner
+  #   2. Follow the Linux install instructions on that page
+  #   3. docker login ghcr.io -u <user> -p <PAT with read:packages>
   # ─────────────────────────────────────────────
   deploy:
-    name: Deploy to VM
-    runs-on: ubuntu-latest
+    name: Deploy to VM (Minikube)
+    runs-on: self-hosted
     needs: push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -234,57 +239,38 @@ jobs:
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VM_SSH_HOST }}
-          username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          envs: GHCR_USERNAME,GHCR_PAT,DB_PASSWORD,JWT_SECRET
-          script: |
-            set -e
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-            echo "=== Pulling latest manifests ==="
-            cd ~/LukisBombasticIFCviewer
-            git pull origin main
+      - name: Pull new images from GHCR
+        run: |
+          docker pull ghcr.io/lukewenger/bombasticifccluster-api:latest
+          docker pull ghcr.io/lukewenger/bombasticifccluster-frontend:latest
 
-            echo "=== Ensuring namespace exists ==="
-            kubectl apply -f kubernetes/namespace.yaml
+      - name: Load images into Minikube
+        run: |
+          minikube image load ghcr.io/lukewenger/bombasticifccluster-api:latest
+          minikube image load ghcr.io/lukewenger/bombasticifccluster-frontend:latest
 
-            echo "=== Upserting GHCR pull secret ==="
-            kubectl create secret docker-registry ghcr-login-secret \
-              --docker-server=ghcr.io \
-              --docker-username="$GHCR_USERNAME" \
-              --docker-password="$GHCR_PAT" \
-              --namespace=bombasticifccluster \
-              --dry-run=client -o yaml | kubectl apply -f -
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f kubernetes/namespace.yaml
+          kubectl apply -f kubernetes/configmap.yaml
+          kubectl apply -f kubernetes/persistent-volumes.yaml
+          kubectl apply -f kubernetes/postgres-deployment.yaml
+          kubectl apply -f kubernetes/api-deployment.yaml
+          kubectl apply -f kubernetes/frontend-deployment.yaml
+          kubectl apply -f kubernetes/ingress.yaml
 
-            echo "=== Upserting app secrets ==="
-            DB_CONN="Host=postgres-service;Port=5432;Database=bombasticifcdb;Username=postgres;Password=${DB_PASSWORD}"
-            kubectl create secret generic bombasticifccluster-secrets \
-              --from-literal=postgres-user=postgres \
-              --from-literal=postgres-password="$DB_PASSWORD" \
-              --from-literal=postgres-db=bombasticifcdb \
-              --from-literal=connection-string="$DB_CONN" \
-              --from-literal=jwt-secret="$JWT_SECRET" \
-              --namespace=bombasticifccluster \
-              --dry-run=client -o yaml | kubectl apply -f -
+      - name: Trigger rolling restart
+        run: |
+          kubectl rollout restart deployment/api-deployment      -n bombasticifccluster
+          kubectl rollout restart deployment/frontend-deployment -n bombasticifccluster
 
-            echo "=== Applying Kubernetes manifests ==="
-            kubectl apply -f kubernetes/configmap.yaml
-            kubectl apply -f kubernetes/persistent-volumes.yaml
-            kubectl apply -f kubernetes/postgres-deployment.yaml
-            kubectl apply -f kubernetes/api-deployment.yaml
-            kubectl apply -f kubernetes/frontend-deployment.yaml
-            kubectl apply -f kubernetes/ingress.yaml
+      - name: Wait for rollout to complete
+        run: |
+          kubectl rollout status deployment/api-deployment      -n bombasticifccluster --timeout=5m
+          kubectl rollout status deployment/frontend-deployment -n bombasticifccluster --timeout=5m
 
-            echo "=== Triggering rolling restart (pulls new :latest from GHCR) ==="
-            kubectl rollout restart deployment/api-deployment      -n bombasticifccluster
-            kubectl rollout restart deployment/frontend-deployment -n bombasticifccluster
-
-            echo "=== Waiting for rollout to complete ==="
-            kubectl rollout status deployment/api-deployment      -n bombasticifccluster --timeout=5m
-            kubectl rollout status deployment/frontend-deployment -n bombasticifccluster --timeout=5m
-
-            echo "=== Deployment complete ==="
-            kubectl get pods -n bombasticifccluster
+      - name: Show pod status
+        run: kubectl get pods -n bombasticifccluster

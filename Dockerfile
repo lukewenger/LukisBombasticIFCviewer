@@ -63,8 +63,7 @@ RUN mkdir -p /data/storage /app/seed-data
 COPY --from=publish /app/publish .
 COPY src/BombasticIFC.API/data/storage/samples/Duplex.xkt /app/seed-data/Duplex.xkt
 
-# Railway injects PORT; Kubernetes leaves PORT unset (probes target 8080).
-# EXPOSE here is documentation only — actual port is controlled by --urls at runtime.
+# Port 8080 — matches K8s liveness/readiness probes
 EXPOSE 8080
 
 # Install Node.js 20 from NodeSource so the runtime ABI matches the node:20-bookworm-slim
@@ -81,9 +80,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=node-builder /usr/local/bin/xeokit-convert /usr/local/bin/xeokit-convert
 
-# Use shell form so ${PORT:-8080} is expanded at container start:
-#   Railway  → sets PORT to its assigned value → Kestrel binds there
-#   Kubernetes → PORT not set → falls back to 8080 (matches probe port)
-#   Docker Compose → sets PORT=80 in environment → Kestrel binds to 80
-# exec replaces the shell process so .NET receives SIGTERM directly.
-ENTRYPOINT ["/bin/sh", "-c", "exec dotnet BombasticIFC.API.dll --urls http://+:${PORT:-8080}"]
+# Bind Kestrel to 8080 — matches the containerPort in the Kubernetes manifests.
+ENTRYPOINT ["dotnet", "BombasticIFC.API.dll", "--urls", "http://+:8080"]
