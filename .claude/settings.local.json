@@ -1,13 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Agent",
-      "Bash(npm run *)",
-      "Bash(xargs grep *)",
-      "Bash(xmllint --version)",
-      "Bash(xmllint --noout \"C:/Github/LukisConstructionManager/test/Sample/ELEMENT_C_1.OG_C1_STFT.ifc\")",
-      "Bash(grep -oP \"\\(?<=,#\\\\d{1,4},'\\)[^']*\\(?='\\)\")",
-      "Bash(python3 *)"
+      "Bash(mkdir -p \"C:\\\\Github\\\\LukisBombasticIFCviewer\\\\.github\\\\workflows\")",
+      "Bash(mkdir -p \"C:\\\\Github\\\\LukisBombasticIFCviewer\\\\Doku\\\\Deployment\")"
     ]
   }
 }

@@ -1,0 +1,32 @@
+# railway.toml — BombasticIFC Railway deployment configuration
+# Documentation: https://docs.railway.app/reference/config-as-code
+#
+# Usage:
+#   1. Install Railway CLI:  npm install -g @railway/cli
+#   2. Login:                railway login
+#   3. Link project:         railway link
+#   4. Deploy:               railway up
+#
+# Or: connect the GitHub repository in the Railway dashboard —
+#     every push to main triggers a new deployment automatically.
+#
+# Required environment variables (set in Railway dashboard):
+#   DATABASE_URL          — auto-set by Railway Postgres plugin
+#   JWT_SECRET            — generate with: openssl rand -base64 32
+#   ASPNETCORE_ENVIRONMENT=Production
+#
+# Optional (defaults shown):
+#   JwtSettings__Issuer=BombasticIFC
+#   JwtSettings__Audience=BombasticIFC-Client
+#   JwtSettings__ExpirationMinutes=120
+#   StoragePath=/data/storage
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
