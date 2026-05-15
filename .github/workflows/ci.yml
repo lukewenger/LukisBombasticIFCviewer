@@ -62,7 +62,12 @@ jobs:
 
       - name: TypeScript type-check (vue-tsc)
         working-directory: frontend
-        run: npx vue-tsc -b --noEmit
+        # -b (build mode) and --noEmit are mutually exclusive in TypeScript —
+        # combining them causes the process to hang indefinitely.
+        # Target tsconfig.app.json directly: it has the src/**/*.vue include glob.
+        # The root tsconfig.json has "files":[] and is only for project-references
+        # build mode (vite build / vue-tsc -b), not for standalone type checking.
+        run: npx vue-tsc --noEmit -p tsconfig.app.json
 
   # ─────────────────────────────────────────────
   # Job 2: Build — Docker images

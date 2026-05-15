@@ -89,9 +89,17 @@ export function usePointPicker() {
     const look = camera.look as number[]
     if (!eye || !look) return
 
-    const dx = eye[0] - look[0]
-    const dy = eye[1] - look[1]
-    const dz = eye[2] - look[2]
+    // Destructure before arithmetic: noUncheckedIndexedAccess (from @vue/tsconfig)
+    // makes eye[n] type number|undefined even after the truthy check above.
+    // Destructuring + explicit undefined-narrowing satisfies the compiler.
+    const [ex, ey, ez] = eye
+    const [lx, ly, lz] = look
+    if (ex === undefined || ey === undefined || ez === undefined ||
+        lx === undefined || ly === undefined || lz === undefined) return
+
+    const dx = ex - lx
+    const dy = ey - ly
+    const dz = ez - lz
     // Actual orbit distance — the correct reference for any model scale.
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
 
