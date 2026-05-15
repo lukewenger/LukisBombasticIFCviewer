@@ -5,12 +5,7 @@
 
 ## Was wurde umgesetzt und warum
 
-Für BombasticIFC wurde eine GitHub-Actions-Pipeline implementiert, die bei jedem Push auf den `main`-Branch automatisch:
-1. Code-Qualität prüft (dotnet test + TypeScript-Typprüfung)
-2. Docker Images baut
-3. Images in GitHub Container Registry (GHCR) veröffentlicht
-
-Die Pipeline liegt unter `.github/workflows/ci.yml`.
+Für BombasticIFC wurde eine GitHub-Actions-Pipeline implementiert, die bei jedem Push auf `main` automatisch vier Jobs ausführt: Code-Qualität prüfen, Images bauen, Images in GHCR veröffentlichen und das Deployment auf dem lokalen VM-Cluster durchführen. Die Pipeline liegt unter `.github/workflows/ci.yml`.
 
 ---
 
@@ -22,18 +17,20 @@ git push main
       ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Job 1: quality                                                      │
+│  Runner: ubuntu-latest                                               │
 │  ─────────────────────────────────────────────────────────────────  │
-│  ✓ Cache NuGet packages (speeds up restore)                          │
+│  ✓ Cache NuGet packages                                              │
 │  ✓ dotnet restore → dotnet build → dotnet test                       │
 │  ✓ npm ci --legacy-peer-deps (npm cache)                             │
 │  ✓ vue-tsc --noEmit (TypeScript type-check)                          │
 │                                                                      │
-│  Schlägt fehl → Build + Push laufen NICHT                            │
+│  Schlägt fehl → Build + Push + Deploy laufen NICHT                   │
 └─────────────────────────┬───────────────────────────────────────────┘
                           │ needs: quality
                           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Job 2: build                                                        │
+│  Runner: ubuntu-latest                                               │
 │  ─────────────────────────────────────────────────────────────────  │
 │  ✓ Docker Buildx setup                                               │
 │  ✓ Metadata-Action: Tags sha-<SHORT_SHA> + latest                    │
@@ -46,56 +43,53 @@ git push main
                           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Job 3: push                                                         │
+│  Runner: ubuntu-latest                                               │
 │  ─────────────────────────────────────────────────────────────────  │
 │  ✓ Login zu ghcr.io mit GITHUB_TOKEN                                 │
 │  ✓ Build + Push API image → ghcr.io/<user>/bombasticifccluster-api   │
 │  ✓ Build + Push Frontend image → ghcr.io/<user>/...-frontend        │
 │  Tags: sha-abc1234 (eindeutig) + latest (menschenlesbar)             │
+└─────────────────────────┬───────────────────────────────────────────┘
+                          │ needs: push
+                          │ only on: push to main (not PRs)
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Job 4: deploy                                                       │
+│  Runner: self-hosted (läuft direkt auf der VM)                       │
+│  ─────────────────────────────────────────────────────────────────  │
+│  ✓ Checkout repository (aktuelle Manifests)                          │
+│  ✓ docker/login-action → GHCR via GITHUB_TOKEN                      │
+│  ✓ docker pull: api + frontend images                                │
+│  ✓ minikube image load: beide Images in Minikube laden              │
+│  ✓ kubectl apply: alle Manifests                                     │
+│  ✓ kubectl rollout restart: api + frontend                           │
+│  ✓ kubectl rollout status --timeout=5m (wartet auf Abschluss)       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Setup-Anleitung (Reproduzierbar durch Dritte)
+## Setup-Anleitung
 
 ### Voraussetzungen
 
-- GitHub Repository (public oder private)
-- Für public repos: GHCR ist kostenlos nutzbar
-- Für private repos: `GITHUB_TOKEN` hat automatisch `packages: write` Permission
+- GitHub-Repository (public oder private)
+- `GITHUB_TOKEN` ist automatisch verfügbar — keine manuellen Secrets für Jobs 1–3 nötig
+- Für Job 4: self-hosted Runner auf der VM installiert und registriert (siehe `LocalVM_Pipeline_Dokumentation.md`)
 
 ### Schritte
 
-```bash
-# 1. Repository klonen und auf main pushen
-git clone https://github.com/<user>/BombasticIFCcluster.git
-cd BombasticIFCcluster
+Ein Push auf `main` genügt, um die gesamte Pipeline zu starten. Die Workflow-Datei liegt bereits im Repository unter `.github/workflows/ci.yml`. Pull Requests triggern nur `quality` und `build`, nicht `push` und `deploy` — so landen ausschliesslich verifizierten Builds in der Registry und auf dem Cluster.
 
-# 2. Pipeline ist bereits unter .github/workflows/ci.yml vorhanden
-# Keine weitere Konfiguration nötig — GITHUB_TOKEN ist automatisch verfügbar
+### Self-hosted Runner (Job 4)
 
-# 3. Push auf main triggert die Pipeline
-git push origin main
-
-# 4. Pipeline-Status prüfen
-# GitHub → Actions Tab → "CI/CD — BombasticIFC"
-```
+Job 4 verwendet `runs-on: self-hosted` und läuft deshalb direkt auf der lokalen VM. Die VM muss einmalig einen GitHub Actions Runner installiert und beim Repository registriert haben. Die Einrichtung ist in `LocalVM_Pipeline_Dokumentation.md` beschrieben. Ausser dem automatischen `GITHUB_TOKEN` sind keine zusätzlichen GitHub-Secrets für den Deploy-Job nötig.
 
 ### Benötigte Secrets
 
 | Secret | Woher | Verwendung |
 |---|---|---|
-| `GITHUB_TOKEN` | Automatisch von GitHub bereitgestellt | GHCR Login (packages: write) |
-
-Keine manuellen Secrets nötig. Der `GITHUB_TOKEN` hat für dasselbe Repository automatisch Schreibrechte auf GHCR.
-
-### Images in GHCR einsehen
-
-Nach erfolgreichem Push sind die Images sichtbar unter:
-```
-https://github.com/<user>/BombasticIFCcluster/pkgs/container/bombasticifccluster-api
-https://github.com/<user>/BombasticIFCcluster/pkgs/container/bombasticifccluster-frontend
-```
+| `GITHUB_TOKEN` | Automatisch von GitHub bereitgestellt | GHCR Login (packages: write / read) |
 
 ---
 
@@ -109,7 +103,7 @@ tags: |
   type=raw,value=latest               # Menschenlesbar: latest
 ```
 
-Zwei Tags pro Image: ein unveränderlicher (Git-SHA) für Nachvollziehbarkeit, und `latest` für einfachen Zugriff.
+Zwei Tags pro Image: ein unveränderlicher (Git-SHA) für Nachvollziehbarkeit und `latest` für einfachen Zugriff durch den Deploy-Job.
 
 ### Docker Layer Caching (GHA Cache)
 
@@ -120,54 +114,38 @@ Zwei Tags pro Image: ein unveränderlicher (Git-SHA) für Nachvollziehbarkeit, u
     cache-to: type=gha,mode=max,scope=api
 ```
 
-GitHub Actions Cache speichert Docker-Layer. Zweite Builds ohne Code-Änderung laufen 3-5x schneller.
+GitHub Actions Cache speichert Docker-Layer jobübergreifend. Builds ohne Code-Änderung laufen dadurch 3–5x schneller.
 
-### NuGet + npm Caching
+### Login im Deploy-Job
 
-```yaml
-- uses: actions/cache@v4
-  with:
-    path: ~/.nuget/packages
-    key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
-```
-
-Cache-Key basiert auf `.csproj`-Hashes. Ändert sich keine Projekt-Datei, wird der Cache vollständig wiederverwendet.
-
-### Push nur auf main (nicht auf PRs)
-
-```yaml
-push:
-  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-```
-
-Pull Requests triggern quality + build, aber keinen Push. So werden nur verifizierten Builds in der Registry gespeichert.
+Der Deploy-Job führt `docker/login-action` aus, obwohl er auf der VM läuft. Der Grund: Der Docker-Daemon des self-hosted Runners ist nicht vorauthentifiziert gegenüber GHCR. Die `login-action` authentifiziert per `GITHUB_TOKEN` mit `packages: read`-Berechtigung für genau diesen Job-Lauf. So braucht die VM keine dauerhaft gespeicherten Registry-Credentials.
 
 ---
 
 ## Begründung der wichtigsten Entscheidungen
 
 ### Warum GHCR statt Docker Hub?
-GHCR ist direkt in GitHub integriert — kein separater Account, GITHUB_TOKEN reicht für Login. Für öffentliche Repos kostenlos und ohne Rate-Limit-Probleme. Die Images liegen im selben GitHub-Namespace wie der Code.
+GHCR ist direkt in GitHub integriert. Der `GITHUB_TOKEN` reicht für Login und Push — kein separater Account, keine Rate-Limit-Probleme. Images und Code liegen im selben GitHub-Namespace.
 
-### Warum drei separate Jobs (quality / build / push)?
-Fail-fast-Prinzip: Scheitert quality (z.B. Test-Fehler), läuft build gar nicht erst. Das spart teure Build-Minuten und gibt sofort klares Feedback wo das Problem liegt.
+### Warum vier separate Jobs?
+Fail-fast-Prinzip: Scheitert `quality`, läuft `build` gar nicht. Das spart teure Build-Minuten und gibt sofort klares Feedback, wo das Problem liegt. Der Deploy-Job ist bewusst vom Push getrennt, weil er auf einem anderen Runner-Typ läuft.
+
+### Warum self-hosted Runner statt SSH?
+Die VM ist lokal und hat keine öffentliche IP. Cloud-Runner könnten sie nicht per SSH erreichen. Ein self-hosted Runner initiiert eine ausgehende Verbindung zu GitHub und empfängt Jobs — kein Port-Forwarding, kein VPN nötig.
 
 ### Warum vue-tsc statt ESLint?
-Das Projekt hat kein ESLint konfiguriert. vue-tsc --noEmit prüft TypeScript-Typen über das gesamte Vue-Projekt und fängt Typ-Fehler, fehlende Properties und falsche Interface-Implementierungen auf — aussagekräftiger als reines Linting.
-
-### Warum workflow_dispatch als Trigger?
-Erlaubt manuelle Pipeline-Starts über die GitHub UI ohne Code-Push. Nützlich für Debugging und Re-Deployments.
+Das Projekt hat kein ESLint konfiguriert. `vue-tsc --noEmit` prüft TypeScript-Typen über das gesamte Vue-Projekt und fängt fehlende Properties und falsche Interface-Implementierungen auf.
 
 ---
 
 ## Reflexion
 
 **Was gut funktioniert hat:**
-- GITHUB_TOKEN-basiertes GHCR-Login ohne manuelle Secret-Verwaltung
+- `GITHUB_TOKEN`-basiertes GHCR-Login ohne manuelle Secret-Verwaltung
 - GHA Docker-Layer-Cache beschleunigt Rebuilds erheblich
-- Job-Dependencies (needs: quality) erzwingen die richtige Reihenfolge
+- Job-Dependencies erzwingen die richtige Reihenfolge und verhindern fehlerhafte Deployments
 
 **Was rückblickend anders gelöst würde:**
-- Separate Vitest/Jest-Tests für das Frontend wären sinnvoll (aktuell nur vue-tsc)
-- Automatisches Deployment auf Kubernetes via kubectl oder Helm wäre die nächste Stufe (Continuous Deployment statt Delivery)
+- Separate Vitest-Tests für das Frontend wären sinnvoll (aktuell nur vue-tsc)
+- Das in C4 beschriebene Migrations-Problem zeigt: ein Pre-Deploy-Schritt, der prüft ob die DB-Schema-Version mit dem Image übereinstimmt, würde 500-Fehler nach Deployments verhindern
 - Semantic Versioning (v1.2.3-Tags) für produktionsreife Image-Versionen

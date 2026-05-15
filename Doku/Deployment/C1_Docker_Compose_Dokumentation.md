@@ -5,15 +5,13 @@
 
 ## Was wurde umgesetzt und warum
 
-BombasticIFC ist eine SPA für die Verwaltung und Visualisierung von IFC-Gebäudemodellen. Die Anwendung besteht aus drei Services, die sinnvoll zusammenarbeiten:
+BombasticIFC besteht aus drei Services, die lokal per Docker Compose zusammenspielen. Docker Compose dient als Entwicklungsumgebung — Kubernetes (C4) ist die Zielplattform.
 
 | Service | Image/Build | Aufgabe |
 |---|---|---|
 | `postgres` | `postgres:16-alpine` | Persistente Datenhaltung (User, Modelle, Konvertierungsjobs) |
 | `api` | eigenes Dockerfile (multi-stage) | .NET 8 REST-API, Authentifizierung, Datei-Upload, IFC-Konvertierung |
 | `frontend` | eigenes Dockerfile (multi-stage) | Vue.js SPA via nginx, Reverse-Proxy zu /api |
-
-Die Services haben echte gegenseitige Abhängigkeiten: Das Frontend kommuniziert ausschliesslich über den API-Service mit der Datenbank. PostgreSQL ist von aussen nicht erreichbar.
 
 ---
 
@@ -33,10 +31,9 @@ Die Services haben echte gegenseitige Abhängigkeiten: Das Frontend kommuniziert
                     │         frontend-net │                          │
                     │  ┌──────────────────▼──────────────────────┐   │
                     │  │  api (.NET 8 ASP.NET Core)               │   │
-                    │  │  Port 80 (intern) / 5000 (extern/debug)  │   │
+                    │  │  Port 8080 (intern) / 5000 (extern)      │   │
                     │  │  - REST API (/api/*)                      │   │
-                    │  │  - JWT-Auth                               │   │
-                    │  │  - IFC-Upload & Konvertierung             │   │
+                    │  │  - JWT-Auth, IFC-Upload & Konvertierung   │   │
                     │  │  Volume: storage-data → /data/storage     │   │
                     │  └──────────────────┬──────────────────────┘   │
                     │         backend-net  │                          │
@@ -50,45 +47,11 @@ Die Services haben echte gegenseitige Abhängigkeiten: Das Frontend kommuniziert
 
 ---
 
-## Setup-Anleitung (Reproduzierbar durch Dritte)
+## Setup-Anleitung
 
-### Voraussetzungen
+Voraussetzungen: Docker Engine 24.x+ und Git.
 
-- Docker Desktop oder Docker Engine ≥ 24.x
-- Git
-
-### Schritte
-
-```bash
-# 1. Repository klonen
-git clone https://github.com/<your-github-user>/BombasticIFCcluster.git
-cd BombasticIFCcluster
-
-# 2. Umgebungsvariablen konfigurieren
-cp .env.example .env
-# .env öffnen und sichere Passwörter setzen:
-#   POSTGRES_PASSWORD=<sicheres-passwort>
-#   JWT_SECRET=<min-32-zeichen-secret>
-# Beispiel: openssl rand -base64 32
-
-# 3. Services starten
-docker compose up -d
-
-# 4. Warten bis alle Services bereit sind (ca. 30-60 Sek)
-docker compose ps
-
-# 5. Zugriff
-# Frontend: http://localhost
-# API/Swagger: http://localhost:5000/swagger
-# API Health: http://localhost:5000/health
-```
-
-### Stoppen
-
-```bash
-docker compose down       # Services stoppen, Volumes behalten
-docker compose down -v    # Services stoppen + Volumes löschen (DB zurücksetzen)
-```
+Das Repository enthält eine `.env.example` mit allen benötigten Variablen. Diese Datei wird nach `.env` kopiert und mit sicheren Werten befüllt — insbesondere `POSTGRES_PASSWORD` und `JWT_SECRET`. Anschliessend genügt `docker compose up -d`. Nach etwa 30–60 Sekunden sind alle Services bereit: das Frontend ist unter `http://localhost` erreichbar, die API direkt unter `http://localhost:5000`. Mit `docker compose down -v` werden Services und Volumes gemeinsam entfernt (setzt die Datenbank zurück).
 
 ---
 
@@ -107,43 +70,18 @@ postgres:
 api:
   depends_on:
     postgres:
-      condition: service_healthy   # API startet erst wenn Postgres bereit
+      condition: service_healthy   # API startet erst wenn Postgres bereit ist
 ```
 
 ### Netzwerk-Isolation
 
 ```yaml
-# Nur api und frontend sind im frontend-net → frontend kann api ansprechen
-# Nur api und postgres sind im backend-net → api kann postgres ansprechen
-# frontend kann postgres NICHT direkt erreichen
-
+# frontend-net: frontend ↔ api
+# backend-net:  api ↔ postgres
+# Das Frontend kann postgres NICHT direkt erreichen.
 networks:
-  frontend-net:    # frontend ↔ api
-  backend-net:     # api ↔ postgres
-```
-
-### Secrets via .env (niemals hardcoded)
-
-```yaml
-# docker-compose.yml referenziert nur Variablen
-api:
-  environment:
-    - ConnectionStrings__DefaultConnection=...Password=${POSTGRES_PASSWORD:?Pflichtfeld}
-    - JwtSettings__Secret=${JWT_SECRET:?Pflichtfeld}
-```
-
-Die tatsächlichen Werte stehen in `.env` (gitignored). `.env.example` dient als Vorlage.
-
-### Multi-Stage Dockerfile (API)
-
-```dockerfile
-# Stage 1: Build (SDK ~900MB)
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
-# ... dotnet build, dotnet publish
-
-# Stage 2: Runtime (~200MB) + Node.js 20 (für xeokit-convert)
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
-# Nur die Published-Ausgabe, kein SDK-Overhead
+  frontend-net:
+  backend-net:
 ```
 
 ---
@@ -151,27 +89,26 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 ## Begründung der wichtigsten Entscheidungen
 
 ### Warum PostgreSQL statt SQLite?
-PostgreSQL wird auch in der Kubernetes-Produktion eingesetzt. Docker Compose spiegelt damit die Produktionsarchitektur (Dev/Prod-Parität). SQLite ist nicht für Multi-Replica-Deployments geeignet.
+PostgreSQL ist identisch mit der Kubernetes-Produktionsumgebung. Dev/Prod-Parität verhindert Überraschungen beim Deployment. SQLite ist ausserdem nicht multi-replica-fähig.
 
 ### Warum zwei Netzwerke?
-Security-by-default: Das Frontend soll nicht direkt auf die Datenbank zugreifen können. Durch `frontend-net` (frontend ↔ api) und `backend-net` (api ↔ postgres) ist die Datenbankebene vollständig isoliert.
+Security-by-default: Das Frontend soll keinen direkten Datenbankzugriff haben. Zwei isolierte Netzwerke erzwingen diese Trennung auf Netzwerkebene, ohne zusätzliche Firewall-Regeln.
 
-### Warum depends_on mit condition: service_healthy statt nur service_started?
-`service_started` garantiert nur, dass der Container läuft — nicht, dass PostgreSQL Verbindungen annimmt. Mit `service_healthy` und `pg_isready`-Healthcheck startet die API erst, wenn die Datenbank tatsächlich bereit ist.
+### Warum depends_on mit condition: service_healthy?
+`service_started` garantiert nur, dass der Container läuft — nicht, dass PostgreSQL Verbindungen annimmt. Mit `service_healthy` und `pg_isready` startet die API erst, wenn die Datenbank tatsächlich bereit ist. Das verhindert Verbindungsfehler beim ersten Start.
 
-### Warum separate nginx.compose.conf?
-Die Production-nginx.conf proxied `/api/` auf den K8s-DNS-Namen (`api-service.bombasticifccluster.svc.cluster.local`). In Docker Compose lautet der DNS-Name schlicht `api`. Eine separate `nginx.compose.conf` wird via Bind-Mount eingehängt, ohne das Image zu verändern.
+### Warum eine separate nginx.compose.conf?
+Die produktive nginx-Konfiguration proxied `/api/` auf den K8s-DNS-Namen. In Docker Compose lautet der Hostname schlicht `api`. Ein Bind-Mount einer eigenen Compose-Konfiguration löst diesen Unterschied, ohne das Image zu verändern.
 
 ---
 
 ## Reflexion
 
 **Was gut funktioniert hat:**
-- Multi-Stage Builds halten die Images schlank (API ~280MB statt ~1.2GB mit SDK)
-- Healthchecks + depends_on sorgen für reproduzierbare Startreihenfolge
-- Netzwerk-Isolation verhindert direkte DB-Zugriffe vom Frontend
+- Multi-Stage Builds halten die Images schlank (API ~280 MB statt ~1,2 GB mit SDK)
+- Healthchecks und depends_on sorgen für eine reproduzierbare Startreihenfolge
+- Netzwerk-Isolation verhindert direkte Datenbankzugriffe vom Frontend
 
 **Was rückblickend anders gelöst würde:**
-- Die ursprüngliche docker-compose.yml hatte das PostgreSQL-Passwort hartcodiert — das wurde korrigiert
-- Für echte Produktion würde Docker Compose durch Kubernetes ersetzt (C4)
-- Ein Redis-Service für Session-Caching wäre sinnvoll (aktuell keine Cache-Schicht)
+- Die ursprüngliche Compose-Datei hatte das PostgreSQL-Passwort hartcodiert — das wurde korrigiert
+- Eine Redis-Cache-Schicht fehlt aktuell; für Produktionslast wäre sie sinnvoll

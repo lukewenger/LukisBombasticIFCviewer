@@ -15,7 +15,7 @@ A single-page application for managing and visualising IFC (Industry Foundation 
 | Database | PostgreSQL 16 Alpine |
 | Auth | JWT Bearer tokens, HS256, BCrypt (work factor 12) |
 | Containerisation | Docker multi-stage builds — `Dockerfile` (API), `frontend/Dockerfile` (nginx) |
-| Orchestration | Kubernetes manifests in `kubernetes/` — Minikube (dev), K3s (production path) |
+| Orchestration | Kubernetes manifests in `kubernetes/` — Minikube on Ubuntu VM |
 | CI/CD | GitHub Actions — GHCR as container registry, self-hosted runner for deploy |
 
 ---
@@ -141,12 +141,14 @@ Both images use multi-stage builds. The API image includes a dedicated Node.js 2
 
 ### One-time VM setup
 
-1. In the repository, go to **Settings → Actions → Runners → New self-hosted runner** and follow the Linux install instructions.
-2. Authenticate the runner's Docker daemon with GHCR so it can pull images:
+1. Enable the Minikube ingress addon — required for the nginx ingress controller to work:
 
 ```bash
-docker login ghcr.io -u <github-username> -p <PAT with read:packages scope>
+minikube addons enable ingress
 ```
+
+2. Install the self-hosted GitHub Actions runner: repo → **Settings → Actions → Runners → New self-hosted runner** → follow the Linux instructions.
+3. No manual `docker login` needed — the deploy job authenticates automatically using `GITHUB_TOKEN` via `docker/login-action`.
 
 ### Manual deploy sequence
 
@@ -175,6 +177,16 @@ The pipeline in `.github/workflows/ci.yml` runs four jobs on every push to `main
 | `deploy` | `self-hosted` | after `push` completes | Pulls images from GHCR, loads into Minikube, applies manifests, triggers rolling restart, waits for rollout |
 
 The deploy job runs directly on the self-hosted runner where Minikube and `kubectl` already live — no inbound SSH connection is required.
+
+### Known issues
+
+**EF Core migrations and image staleness**
+
+EF Core applies pending migrations at startup (`db.Database.Migrate()`), but only migrations bundled in the running image. If a migration was added after the last image push, the database schema will be out of date and the API will return 500 on DB-touching endpoints.
+
+Fix: push a new image (triggers the full pipeline, which pushes a fresh image containing the migration), then the deploy job will load the updated image and the next pod start applies the migration automatically.
+
+If you need to apply a migration immediately without pushing code, port-forward to Postgres and run `dotnet ef database update` locally pointing at the cluster DB.
 
 ---
 
