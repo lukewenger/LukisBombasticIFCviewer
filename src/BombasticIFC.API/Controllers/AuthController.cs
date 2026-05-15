@@ -66,6 +66,7 @@ public class AuthController : ControllerBase
     /// Issue a new access + refresh token pair using a valid refresh token (rotates the old token)
     /// </summary>
     [HttpPost("refresh")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
         try

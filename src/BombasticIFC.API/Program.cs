@@ -5,6 +5,7 @@ using BombasticIFC.Infrastructure.Persistence;
 using BombasticIFC.Infrastructure.Repositories;
 using BombasticIFC.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -72,6 +73,7 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddRateLimiter(options =>
 {
+    // Auth endpoints: 10 requests per minute per IP (login, register, refresh)
     options.AddFixedWindowLimiter("auth", limiterOptions =>
     {
         limiterOptions.PermitLimit = 10;
@@ -79,7 +81,41 @@ builder.Services.AddRateLimiter(options =>
         limiterOptions.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
         limiterOptions.QueueLimit = 0;
     });
+
+    // Upload endpoint: 5 uploads per minute per IP (IFC file processing is expensive)
+    options.AddFixedWindowLimiter("upload", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 5;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+        limiterOptions.QueueLimit = 0;
+    });
+
+    // General API endpoints: 20 requests per minute per IP (conversion jobs etc.)
+    options.AddFixedWindowLimiter("api", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 20;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+        limiterOptions.QueueLimit = 0;
+    });
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        var logger = context.HttpContext.RequestServices
+            .GetRequiredService<ILogger<Program>>();
+        logger.LogWarning(
+            "Rate limit exceeded: {Method} {Path} from {RemoteIP}",
+            context.HttpContext.Request.Method,
+            context.HttpContext.Request.Path,
+            context.HttpContext.Connection.RemoteIpAddress);
+
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsync(
+            "{\"message\":\"Too many requests. Please slow down.\"}",
+            cancellationToken);
+    };
 });
 
 // Add CORS

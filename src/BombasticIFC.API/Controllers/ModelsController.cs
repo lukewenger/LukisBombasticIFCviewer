@@ -3,6 +3,7 @@ using BombasticIFC.Application.UseCases.Models;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 
 namespace BombasticIFC.API.Controllers;
@@ -42,6 +43,7 @@ public class ModelsController : ControllerBase
     /// Upload a new IFC model
     /// </summary>
     [HttpPost("upload")]
+    [EnableRateLimiting("upload")]
     [RequestSizeLimit(524_288_000)]
     [RequestFormLimits(MultipartBodyLengthLimit = 524_288_000)]
     [ProducesResponseType(typeof(IfcModelDto), StatusCodes.Status201Created)]

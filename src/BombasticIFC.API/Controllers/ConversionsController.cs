@@ -4,6 +4,7 @@ using BombasticIFC.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BombasticIFC.API.Controllers;
 
@@ -28,6 +29,7 @@ public class ConversionsController : ControllerBase
     /// Create a new conversion job
     /// </summary>
     [HttpPost]
+    [EnableRateLimiting("api")]
     [ProducesResponseType(typeof(ConversionJobDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ConversionJobDto>> CreateConversionJob(
