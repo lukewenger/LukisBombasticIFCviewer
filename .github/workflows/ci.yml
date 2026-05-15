@@ -213,3 +213,52 @@ jobs:
           echo "API image tags: ${{ steps.meta-api.outputs.tags }}"
           echo "Frontend image tags: ${{ steps.meta-frontend.outputs.tags }}"
           echo "Git SHA: ${{ github.sha }}"
+
+  # ─────────────────────────────────────────────
+  # Job 4: Deploy — rolling update on VM (K3s)
+  # SSHs into the VM, pulls latest manifests,
+  # applies them, and triggers a rolling restart
+  # so K3s pulls the new :latest images from GHCR.
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to VM (K3s)
+    runs-on: ubuntu-latest
+    needs: push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          # Adjust the repo path below if the checkout lives elsewhere on the VM.
+          # K3s ships kubectl at /usr/local/bin/kubectl — no sudo needed if the
+          # VM user's KUBECONFIG points at /etc/rancher/k3s/k3s.yaml.
+          script: |
+            set -e
+
+            echo "=== Pulling latest manifests ==="
+            cd ~/LukisBombasticIFCviewer
+            git pull origin main
+
+            echo "=== Applying Kubernetes manifests ==="
+            kubectl apply -f kubernetes/namespace.yaml
+            kubectl apply -f kubernetes/configmap.yaml
+            kubectl apply -f kubernetes/persistent-volumes.yaml
+            kubectl apply -f kubernetes/postgres-deployment.yaml
+            kubectl apply -f kubernetes/api-deployment.yaml
+            kubectl apply -f kubernetes/frontend-deployment.yaml
+            kubectl apply -f kubernetes/ingress.yaml
+
+            echo "=== Triggering rolling restart (pulls new :latest from GHCR) ==="
+            kubectl rollout restart deployment/api-deployment      -n bombasticifccluster
+            kubectl rollout restart deployment/frontend-deployment -n bombasticifccluster
+
+            echo "=== Waiting for rollout to complete ==="
+            kubectl rollout status deployment/api-deployment      -n bombasticifccluster --timeout=5m
+            kubectl rollout status deployment/frontend-deployment -n bombasticifccluster --timeout=5m
+
+            echo "=== Deployment complete ==="
+            kubectl get pods -n bombasticifccluster

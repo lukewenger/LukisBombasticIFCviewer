@@ -23,8 +23,8 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
       - name: api
-        image: bombasticifccluster-api:latest
-        imagePullPolicy: Never
+        image: ghcr.io/lukewenger/bombasticifccluster-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         env:
