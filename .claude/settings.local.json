@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(mkdir -p \"C:\\\\Github\\\\LukisBombasticIFCviewer\\\\.github\\\\workflows\")",
-      "Bash(mkdir -p \"C:\\\\Github\\\\LukisBombasticIFCviewer\\\\Doku\\\\Deployment\")"
+      "Bash(mkdir -p \"C:\\\\Github\\\\LukisBombasticIFCviewer\\\\Doku\\\\Deployment\")",
+      "Bash(dotnet build:*)"
     ]
   }
 }
