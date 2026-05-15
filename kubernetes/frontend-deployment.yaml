@@ -22,8 +22,8 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: bombasticifccluster-frontend:latest
-        imagePullPolicy: Never
+        image: ghcr.io/lukewenger/bombasticifccluster-frontend:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
         resources:
