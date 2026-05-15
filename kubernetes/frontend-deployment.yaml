@@ -20,6 +20,8 @@ spec:
       labels:
         app: bombasticifccluster-frontend
     spec:
+      imagePullSecrets:
+      - name: ghcr-login-secret
       containers:
       - name: frontend
         image: ghcr.io/lukewenger/bombasticifccluster-frontend:latest

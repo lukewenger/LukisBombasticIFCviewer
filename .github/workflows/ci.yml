@@ -231,9 +231,17 @@ jobs:
     needs: push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+<<<<<<< HEAD
     permissions:
       contents: read
       packages: read
+=======
+    env:
+      GHCR_USERNAME: ${{ github.repository_owner }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+>>>>>>> 1812f9871744f7bee7e5e617a5c6d0ad9d2e8b96
 
     steps:
       - name: Check out repository
