@@ -25,11 +25,9 @@ A single-page application for managing and visualising IFC (Industry Foundation 
 ```plaintext
 BombasticIFCcluster.sln          .NET solution file
 Dockerfile                        Multi-stage API image (sdk → publish → aspnet + node20 + xeokit-convert)
-docker-compose.yml                Local dev stack: postgres + api + frontend
 frontend/
   Dockerfile                      Multi-stage frontend image (node:20-alpine → nginx:alpine)
   nginx.conf                      nginx SPA config (try_files, /api proxy) — used in K8s
-  nginx.compose.conf              nginx config for Docker Compose (proxies /api to api service)
   src/
     api/                          Axios client + per-feature API modules
     components/                   AppHeader, ModelCard, XeokitPointViewer, PointPickerPanel, EntityAttributesPanel
@@ -66,32 +64,87 @@ Doku/                             Extended documentation (architecture, cluster,
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) with the Compose plugin
+- [Minikube](https://minikube.sigs.k8s.io/docs/start/) with `kubectl`
 - Node.js 20 (required for xeokit-convert native addon ABI compatibility)
 - .NET 8 SDK
 
-### Docker Compose quickstart
+### Local development with Minikube
 
-All three services (PostgreSQL, API, frontend) start together. The frontend is served at `http://localhost` and the API is reachable at both `http://localhost/api` (via nginx proxy) and `http://localhost:5000` (direct).
+The same Kubernetes manifests used in production are used locally. There is no separate Docker Compose path.
 
-```bash
-cp .env.example .env        # edit POSTGRES_PASSWORD and JWT_SECRET before first use
-docker compose up -d
-```
-
-To stop and remove volumes (clears the database):
+**1. Start Minikube and enable the ingress addon (one-time setup):**
 
 ```bash
-docker compose down -v
+minikube start
+minikube addons enable ingress
 ```
 
-### Running the backend only
+**2. Create the secrets manifest on your local machine (never commit this file):**
+
+```bash
+# kubernetes/secrets.yaml — create manually and keep gitignored
+kubectl create secret generic bombasticifccluster-secrets \
+  --namespace=bombasticifccluster \
+  --from-literal=postgres-user=postgres \
+  --from-literal=postgres-password=<your-db-password> \
+  --from-literal=postgres-db=bombasticifcdb \
+  --from-literal=connection-string="Host=postgres-service;Port=5432;Database=bombasticifcdb;Username=postgres;Password=<your-db-password>" \
+  --from-literal=jwt-secret=<your-jwt-secret-min-32-chars> \
+  --dry-run=client -o yaml > kubernetes/secrets.yaml
+```
+
+**3. Apply all manifests:**
+
+```bash
+kubectl apply -f kubernetes/namespace.yaml
+kubectl apply -f kubernetes/secrets.yaml
+kubectl apply -f kubernetes/configmap.yaml
+kubectl apply -f kubernetes/persistent-volumes.yaml
+kubectl apply -f kubernetes/postgres-deployment.yaml
+kubectl apply -f kubernetes/api-deployment.yaml
+kubectl apply -f kubernetes/frontend-deployment.yaml
+kubectl apply -f kubernetes/ingress.yaml
+```
+
+**4. Access the application:**
+
+```bash
+# Get the Minikube IP
+minikube ip
+
+# The app is available at:
+#   http://<minikube-ip>          (frontend via ingress)
+#   http://<minikube-ip>/api      (API via ingress)
+#   http://<minikube-ip>:30080    (API via NodePort — direct)
+#   http://<minikube-ip>:30432    (PostgreSQL via NodePort — dev only)
+```
+
+**5. Tail API logs:**
+
+```bash
+kubectl logs -f deployment/api-deployment -n bombasticifccluster
+```
+
+**6. Tear down (keeps volumes / data):**
+
+```bash
+kubectl delete -f kubernetes/ --ignore-not-found
+```
+
+**7. Tear down and wipe data:**
+
+```bash
+kubectl delete namespace bombasticifccluster
+```
+
+### Running the backend only (no cluster)
 
 ```bash
 cd src/BombasticIFC.API
 dotnet run
 # API available at http://localhost:5000
 # Swagger UI at http://localhost:5000/swagger
+# Requires a running PostgreSQL instance — set ConnectionStrings__DefaultConnection
 ```
 
 ### Running the frontend only
@@ -178,15 +231,34 @@ The pipeline in `.github/workflows/ci.yml` runs four jobs on every push to `main
 
 The deploy job runs directly on the self-hosted runner where Minikube and `kubectl` already live — no inbound SSH connection is required.
 
-### Known issues
+### How migrations work (init-container pattern)
 
-**EF Core migrations and image staleness**
+Migrations are applied by a **dedicated Kubernetes initContainer**, not at API startup. This prevents the class of 500 errors caused by swallowed migration exceptions at startup.
 
-EF Core applies pending migrations at startup (`db.Database.Migrate()`), but only migrations bundled in the running image. If a migration was added after the last image push, the database schema will be out of date and the API will return 500 on DB-touching endpoints.
+**How it works:** An `initContainer` named `migrator` runs in every API pod before the main `api` container starts. It uses the same image as the API container and invokes it with the `--migrate` flag. If the initContainer exits non-zero, Kubernetes halts the rollout and surfaces the error in `kubectl describe pod` — the API pod never starts, making the failure immediately visible.
 
-Fix: push a new image (triggers the full pipeline, which pushes a fresh image containing the migration), then the deploy job will load the updated image and the next pod start applies the migration automatically.
+```
+Pod lifecycle:
+  initContainer: migrator  →  exit 0  →  container: api starts
+                            →  exit 1  →  pod stuck in Init:Error (rollout halted)
+```
 
-If you need to apply a migration immediately without pushing code, port-forward to Postgres and run `dotnet ef database update` locally pointing at the cluster DB.
+**Migrate-only CLI mode:**
+
+```bash
+dotnet BombasticIFC.API.dll --migrate
+# exits 0 on success, 1 on failure
+```
+
+**Image parity:** The initContainer and the main API container always use the same image tag, so the migration assembly is always in sync with the running application code. Pushing a new image automatically applies any pending migrations on the next rollout.
+
+**Emergency manual migration** (e.g., applying migrations to a running cluster without a full redeploy):
+
+```bash
+# Port-forward PostgreSQL and run EF CLI directly
+kubectl port-forward svc/postgres-service 5432:5432 -n bombasticifccluster
+dotnet ef database update --project src/BombasticIFC.Infrastructure --startup-project src/BombasticIFC.API
+```
 
 ---
 
@@ -201,7 +273,7 @@ The API reads configuration from environment variables at runtime. In Docker Com
 | `ASPNETCORE_ENVIRONMENT` | Yes | `Development` (Docker Compose) or `Production` (Kubernetes) |
 | `StoragePath` | Yes | Filesystem path for uploaded and converted files (e.g. `/data/storage`) |
 
-> **`kubernetes/secrets.yaml` is gitignored and must never be committed.** Create it manually on the VM containing the base64-encoded values for `connection-string` and `jwt-secret`. The `.env` file used by Docker Compose is also gitignored — use `.env.example` as the template.
+> **`kubernetes/secrets.yaml` is gitignored and must never be committed.** Create it manually on the VM using `kubectl create secret generic ... --dry-run=client -o yaml > kubernetes/secrets.yaml` (see the Minikube quickstart above for the exact command). The file must contain base64-encoded values for `connection-string` and `jwt-secret`.
 
 ---
 

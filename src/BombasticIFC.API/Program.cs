@@ -9,6 +9,43 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
+// ── Migrate-only mode ────────────────────────────────────────────────────────
+// When the process is started with the --migrate argument it runs all pending
+// EF Core migrations, then exits with code 0 on success or 1 on failure.
+// This is used by the Kubernetes initContainer so that migrations are a
+// deployment-blocking step that runs BEFORE the API process starts, rather
+// than being swallowed at startup.
+//
+// Usage: dotnet BombasticIFC.API.dll --migrate
+if (args.Contains("--migrate"))
+{
+    var migrateHost = Host.CreateDefaultBuilder(args)
+        .ConfigureServices((ctx, services) =>
+        {
+            services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseNpgsql(
+                    ctx.Configuration.GetConnectionString("DefaultConnection"),
+                    b => b.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
+        })
+        .Build();
+
+    var migrateLogger = migrateHost.Services.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        using var scope = migrateHost.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        migrateLogger.LogInformation("Running EF Core migrations...");
+        await db.Database.MigrateAsync();
+        migrateLogger.LogInformation("EF Core migrations completed successfully.");
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        migrateLogger.LogCritical(ex, "EF Core migration failed: {Message}", ex.Message);
+        return 1;
+    }
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
@@ -177,11 +214,16 @@ app.MapControllers();
 // A failing DB will surface in API call errors, not in this probe.
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-// ── Database startup ─────────────────────────────────────────────────────────
-// Single migration + seed block with full error containment.
-// If the DB is unreachable (wrong connection string, Postgres not ready) the
-// exception is logged and swallowed so app.Run() is always reached.
-// Missing ConnectionStrings__DefaultConnection is the most common startup failure cause.
+// ── Database seeding ─────────────────────────────────────────────────────────
+// Migrations are NO LONGER applied here. They are applied by the K8s
+// initContainer that must succeed before this process starts.
+// See --migrate mode above.
+//
+// Only the seeder runs here so that sample data is populated on first boot.
+// Seeding failures are logged at Error level and rethrown — a seed failure
+// indicates a structural problem (schema mismatch, missing data) that should
+// surface as a pod CrashLoopBackOff rather than silently running with
+// corrupted or missing seed state.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -189,9 +231,6 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
-        db.Database.Migrate();
-        logger.LogInformation("Database migrations applied successfully");
-
         await DatabaseSeeder.SeedAsync(
             db,
             builder.Configuration.GetValue<string>("StoragePath") ?? "/data/storage",
@@ -199,12 +238,12 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        logger.LogCritical(ex,
-            "Database startup failed — migrations or seeding threw an exception. " +
-            "All DB-backed endpoints will return 500 until this is resolved. " +
-            "Check ConnectionStrings__DefaultConnection and that all migrations have been applied. " +
+        logger.LogError(ex,
+            "Database seeding failed — the API cannot start with an unseeded database. " +
             "Inner exception: {Message}", ex.Message);
+        throw;
     }
 }
 
 app.Run();
+return 0;

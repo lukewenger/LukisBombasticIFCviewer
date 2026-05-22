@@ -1492,17 +1492,17 @@ dotnet run
 http://localhost:5000/swagger
 ```
 
-### Docker Development
+### Kubernetes Development (Minikube)
 
 ```bash
-# Build and run all services
-docker-compose up -d
+# Apply all manifests
+kubectl apply -f kubernetes/
 
-# View logs
-docker-compose logs -f api
+# Tail API logs
+kubectl logs -f deployment/api-deployment -n bombasticifccluster
 
-# Stop services
-docker-compose down
+# Tear down
+kubectl delete -f kubernetes/ --ignore-not-found
 ```
 
 ### Running Tests

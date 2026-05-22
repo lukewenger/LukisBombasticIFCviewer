@@ -23,6 +23,38 @@ spec:
       terminationGracePeriodSeconds: 120
       imagePullSecrets:
       - name: ghcr-login-secret
+      # ── EF Core migration initContainer ─────────────────────────────────────
+      # Runs all pending EF Core migrations before the API container starts.
+      # Uses the same image as the API container so the migration assembly is
+      # always in sync with the running application code.
+      # The initContainer must exit 0 for the pod to proceed — a failed
+      # migration halts the rollout at the pod level, surfacing the error in
+      # kubectl describe pod rather than hiding it as a 500 response.
+      initContainers:
+      - name: migrator
+        image: ghcr.io/lukewenger/bombasticifccluster-api:latest
+        imagePullPolicy: IfNotPresent
+        command: ["dotnet", "BombasticIFC.API.dll", "--migrate"]
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          value: "Production"
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: bombasticifccluster-secrets
+              key: connection-string
+        - name: JwtSettings__Secret
+          valueFrom:
+            secretKeyRef:
+              name: bombasticifccluster-secrets
+              key: jwt-secret
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       containers:
       - name: api
         image: ghcr.io/lukewenger/bombasticifccluster-api:latest

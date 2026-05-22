@@ -304,3 +304,41 @@ jobs:
 
       - name: Show pod status
         run: kubectl get pods -n bombasticifccluster
+
+      - name: Verify deployment (health + smoke test)
+        run: |
+          MINIKUBE_IP=$(minikube ip)
+          API_URL="http://${MINIKUBE_IP}:30080"
+          echo "Probing API at ${API_URL}"
+
+          # Wait up to 150 s (30 × 5 s) for /health to return 200
+          for i in $(seq 1 30); do
+            HTTP_STATUS=$(curl -o /dev/null -s -w "%{http_code}" "${API_URL}/health" || echo "000")
+            if [ "${HTTP_STATUS}" = "200" ]; then
+              echo "Health check passed on attempt ${i} (HTTP ${HTTP_STATUS})"
+              break
+            fi
+            echo "Attempt ${i}/30: /health returned ${HTTP_STATUS} — waiting 5 s..."
+            sleep 5
+            if [ "${i}" = "30" ]; then
+              echo "ERROR: /health did not return 200 after 30 attempts"
+              exit 1
+            fi
+          done
+
+          # Smoke test: POST /api/auth/register
+          # Accept 201 (created) or 400 (validation / duplicate) — fail only on 5xx
+          SMOKE_USER="ci-smoke-${GITHUB_RUN_ID}"
+          REGISTER_STATUS=$(curl \
+            -o /tmp/register_response.json \
+            -s -w "%{http_code}" \
+            -X POST "${API_URL}/api/auth/register" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${SMOKE_USER}\",\"email\":\"${SMOKE_USER}@ci.local\",\"password\":\"CiSmokeTest!1\"}")
+          echo "POST /api/auth/register → HTTP ${REGISTER_STATUS}"
+          cat /tmp/register_response.json || true
+          if echo "${REGISTER_STATUS}" | grep -qE '^5'; then
+            echo "ERROR: register endpoint returned 5xx (${REGISTER_STATUS}) — deployment failed smoke test"
+            exit 1
+          fi
+          echo "Smoke test passed (HTTP ${REGISTER_STATUS})"
