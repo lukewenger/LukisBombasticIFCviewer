@@ -48,8 +48,8 @@ public class GetModelByIdQueryHandler : IRequestHandler<GetModelByIdQuery, IfcMo
             Status = model.Status,
             CreatedAt = model.CreatedAt,
             UpdatedAt = model.UpdatedAt,
-            XktOutputUrl = latestCompleted != null ? $"/api/models/{model.Id}/output" : null,
-            OriginalFileUrl = $"/api/models/{model.Id}/original",
+            XktOutputUrl = latestCompleted != null ? $"/models/{model.Id}/output" : null,
+            OriginalFileUrl = $"/models/{model.Id}/original",
             ConversionError = latestFailed?.ErrorMessage
         };
     }

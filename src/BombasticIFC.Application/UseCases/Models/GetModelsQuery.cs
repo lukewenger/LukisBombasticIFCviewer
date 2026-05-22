@@ -55,8 +55,8 @@ public class GetModelsQueryHandler : IRequestHandler<GetModelsQuery, List<IfcMod
                 Status = model.Status,
                 CreatedAt = model.CreatedAt,
                 UpdatedAt = model.UpdatedAt,
-                XktOutputUrl = hasXkt ? $"/api/models/{model.Id}/output" : null,
-                OriginalFileUrl = $"/api/models/{model.Id}/original",
+                XktOutputUrl = hasXkt ? $"/models/{model.Id}/output" : null,
+                OriginalFileUrl = $"/models/{model.Id}/original",
                 ConversionError = latestFailed?.ErrorMessage
             };
         }).ToList();
