@@ -1,5 +1,4 @@
 import { ref, computed } from 'vue'
-import api from '../api/client'
 
 export interface LoadedModelEntry {
   id: string
@@ -157,22 +156,28 @@ export function useXeokitViewer() {
 
     loadedModels.value[id] = { id, src, label, visible: true, loading: true, error: null, fileSizeBytes }
 
-    // Download via the authenticated Axios instance so the JWT token is attached,
-    // then hand xeokit a local object URL — xeokit's internal fetch has no auth header.
-    let loadUrl = fallbackSrc ?? src
-    let objectUrl: string | null = null
+    // Fetch the XKT with explicit auth, then pass the raw ArrayBuffer directly
+    // to xeokit via its `arraybuffer` param — blob URLs are unreliable in XKTLoaderPlugin.
+    let loadUrl: string | null = src ? null : (fallbackSrc ?? null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let xktBuffer: any = undefined
 
     if (src) {
       try {
-        const response = await api.get<Blob>(src, { responseType: 'blob' })
-        objectUrl = URL.createObjectURL(response.data)
-        loadUrl = objectUrl
-      } catch {
+        const token = localStorage.getItem('accessToken')
+        const fetchUrl = `/api${src}`
+        const fetchResponse = await fetch(fetchUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        if (!fetchResponse.ok) throw new Error(`HTTP ${fetchResponse.status}`)
+        xktBuffer = await fetchResponse.arrayBuffer()
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
         if (fallbackSrc) {
-          loadedModels.value[id].error = 'Datei nicht erreichbar. Demo-Modell wird geladen.'
+          loadedModels.value[id].error = `Datei nicht erreichbar (${detail}). Demo-Modell wird geladen.`
           loadUrl = fallbackSrc
         } else {
-          loadedModels.value[id].error = 'Datei nicht erreichbar.'
+          loadedModels.value[id].error = `Datei nicht erreichbar (${detail}).`
           loadedModels.value[id].loading = false
           return
         }
@@ -180,10 +185,16 @@ export function useXeokitViewer() {
     }
 
     await new Promise<void>((resolve) => {
-      const sceneModel = xktLoader.load({ id, src: loadUrl, edges: true })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const loadParams: any = { id, edges: true }
+      if (xktBuffer !== undefined) {
+        loadParams.xkt = xktBuffer
+      } else {
+        loadParams.src = loadUrl
+      }
+      const sceneModel = xktLoader.load(loadParams)
       sceneModel.on('loaded', () => {
         if (loadedModels.value[id]) loadedModels.value[id]!.loading = false
-        if (objectUrl) URL.revokeObjectURL(objectUrl)
         resolve()
       })
       sceneModel.on('error', () => {
@@ -191,7 +202,6 @@ export function useXeokitViewer() {
           loadedModels.value[id]!.error = 'Modell konnte nicht geladen werden.'
           loadedModels.value[id]!.loading = false
         }
-        if (objectUrl) URL.revokeObjectURL(objectUrl)
         resolve()
       })
     })

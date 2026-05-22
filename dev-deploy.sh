@@ -32,13 +32,14 @@ eval "$(minikube docker-env)"
 # ── build + deploy frontend ───────────────────────────────────────────────────
 deploy_frontend() {
   log "Building frontend image..."
-  docker build -t bombasticifc-frontend:local "$REPO_ROOT/frontend"
+  docker build --no-cache -t bombasticifc-frontend:local "$REPO_ROOT/frontend"
   ok "Frontend image built → bombasticifc-frontend:local"
 
   log "Deploying frontend to cluster (namespace: $NAMESPACE)..."
   kubectl set image deployment/frontend-deployment \
     frontend=bombasticifc-frontend:local \
     -n "$NAMESPACE"
+  kubectl rollout restart deployment/frontend-deployment -n "$NAMESPACE"
   kubectl rollout status deployment/frontend-deployment -n "$NAMESPACE"
   ok "Frontend rolled out successfully."
 }
@@ -46,13 +47,14 @@ deploy_frontend() {
 # ── build + deploy api ────────────────────────────────────────────────────────
 deploy_api() {
   log "Building API image (this takes ~2 min on first run)..."
-  docker build -t bombasticifc-api:local "$REPO_ROOT"
+  docker build --no-cache -t bombasticifc-api:local "$REPO_ROOT"
   ok "API image built → bombasticifc-api:local"
 
   log "Deploying API to cluster (namespace: $NAMESPACE)..."
   kubectl set image deployment/api-deployment \
     api=bombasticifc-api:local \
     -n "$NAMESPACE"
+  kubectl rollout restart deployment/api-deployment -n "$NAMESPACE"
   kubectl rollout status deployment/api-deployment -n "$NAMESPACE"
   ok "API rolled out successfully."
 }
