@@ -41,17 +41,6 @@ export function useXeokitViewer() {
     () => viewerInitializing.value || Object.values(loadedModels.value).some(m => m.loading)
   )
 
-  async function isModelOutputReachable(url: string): Promise<boolean> {
-    try {
-      // Use the authenticated Axios instance so the JWT token is attached.
-      // A successful 2xx response means the file is ready; any error means it is not.
-      await api.get(url, { responseType: 'arraybuffer', headers: { Range: 'bytes=0-0' } })
-      return true
-    } catch {
-      return false
-    }
-  }
-
   function clearSelection() {
     if (!viewer || !selectedEntityId.value) {
       selectedEntityId.value = null
@@ -168,10 +157,17 @@ export function useXeokitViewer() {
 
     loadedModels.value[id] = { id, src, label, visible: true, loading: true, error: null, fileSizeBytes }
 
-    let loadUrl = src
+    // Download via the authenticated Axios instance so the JWT token is attached,
+    // then hand xeokit a local object URL — xeokit's internal fetch has no auth header.
+    let loadUrl = fallbackSrc ?? src
+    let objectUrl: string | null = null
+
     if (src) {
-      const reachable = await isModelOutputReachable(src)
-      if (!reachable) {
+      try {
+        const response = await api.get<Blob>(src, { responseType: 'blob' })
+        objectUrl = URL.createObjectURL(response.data)
+        loadUrl = objectUrl
+      } catch {
         if (fallbackSrc) {
           loadedModels.value[id].error = 'Datei nicht erreichbar. Demo-Modell wird geladen.'
           loadUrl = fallbackSrc
@@ -187,6 +183,7 @@ export function useXeokitViewer() {
       const sceneModel = xktLoader.load({ id, src: loadUrl, edges: true })
       sceneModel.on('loaded', () => {
         if (loadedModels.value[id]) loadedModels.value[id]!.loading = false
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
         resolve()
       })
       sceneModel.on('error', () => {
@@ -194,6 +191,7 @@ export function useXeokitViewer() {
           loadedModels.value[id]!.error = 'Modell konnte nicht geladen werden.'
           loadedModels.value[id]!.loading = false
         }
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
         resolve()
       })
     })
