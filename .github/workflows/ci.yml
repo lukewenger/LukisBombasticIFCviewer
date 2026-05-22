@@ -261,6 +261,16 @@ jobs:
           minikube image load ghcr.io/lukewenger/bombasticifccluster-api:latest
           minikube image load ghcr.io/lukewenger/bombasticifccluster-frontend:latest
 
+      - name: Ensure ingress addon is enabled
+        run: |
+          if minikube addons list | grep -q "ingress.*enabled"; then
+            echo "Ingress addon already enabled"
+          else
+            echo "Ingress addon disabled — enabling..."
+            minikube addons enable ingress
+          fi
+          kubectl rollout status deployment ingress-nginx-controller -n ingress-nginx --timeout=90s
+
       # ── Create / update Kubernetes secrets ───────
       - name: Create / update Kubernetes secrets
         run: |
@@ -342,3 +352,23 @@ jobs:
             exit 1
           fi
           echo "Smoke test passed (HTTP ${REGISTER_STATUS})"
+
+          # Ingress check — frontend must be reachable via ingress IP
+          INGRESS_IP=$(minikube ip)
+          echo "Probing frontend via ingress at http://${INGRESS_IP}/"
+          for i in $(seq 1 18); do
+            FRONTEND_STATUS=$(curl -o /dev/null -s -w "%{http_code}" "http://${INGRESS_IP}/" || echo "000")
+            if [ "${FRONTEND_STATUS}" = "200" ]; then
+              echo "Frontend reachable via ingress on attempt ${i} (HTTP ${FRONTEND_STATUS})"
+              break
+            fi
+            echo "Attempt ${i}/18: frontend returned ${FRONTEND_STATUS} — waiting 5 s..."
+            sleep 5
+            if [ "${i}" = "18" ]; then
+              echo "ERROR: frontend not reachable via ingress after 90 s"
+              kubectl get ingress -n bombasticifccluster
+              kubectl describe ingress bombasticifccluster-ingress -n bombasticifccluster
+              kubectl get pods -n ingress-nginx
+              exit 1
+            fi
+          done
