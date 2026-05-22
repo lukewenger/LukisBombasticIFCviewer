@@ -1,0 +1,121 @@
+@startuml CI/CD Flow — BombasticIFC
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam ArrowColor #444
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #F9A825
+skinparam ActivityBorderColor #1565C0
+skinparam ActivityBackgroundColor #E3F2FD
+
+title BombasticIFC — GitHub Actions CI/CD Pipeline
+
+|#E8F5E9|Developer|
+|#E3F2FD|GitHub Actions (ubuntu-latest)|
+|#FFF3E0|GHCR (ghcr.io)|
+|#FCE4EC|Self-Hosted Runner (VM / Minikube)|
+
+|Developer|
+start
+:git push / pull_request\n→ branch: main;
+
+|GitHub Actions (ubuntu-latest)|
+fork
+  :Restore NuGet cache;
+  :.NET 8 restore + build (Release);
+  :dotnet test (Release);
+fork again
+  :Node 20 install (npm ci);
+  :vue-tsc --noEmit (type-check);
+end fork
+
+:Job 1 — **quality** ✓\n(lint + test);
+
+note right
+  Triggered on:
+  • push → main
+  • pull_request → main
+  • workflow_dispatch
+end note
+
+if (quality passed?) then (yes)
+  fork
+    :Set up Docker Buildx;
+    :docker/metadata-action\n→ API image tags\n  sha-XXXXXXX / latest;
+  fork again
+    :Set up Docker Buildx;
+    :docker/metadata-action\n→ Frontend image tags\n  sha-XXXXXXX / latest;
+  end fork
+
+  :Build API Docker image\n(context: . / Dockerfile)\n**no push** — cache to GHA;
+  :Build Frontend Docker image\n(context: ./frontend / frontend/Dockerfile)\n**no push** — cache to GHA;
+
+  :Job 2 — **build** ✓\n(Docker images);
+
+  if (push to main?) then (yes)
+    :Login to GHCR\n(GITHUB_TOKEN);
+
+    fork
+      :Build + push API image\n→ ghcr.io/.../bombasticifccluster-api:sha-xxx\n→ ghcr.io/.../bombasticifccluster-api:latest;
+    fork again
+      :Build + push Frontend image\n→ ghcr.io/.../bombasticifccluster-frontend:sha-xxx\n→ ghcr.io/.../bombasticifccluster-frontend:latest;
+    end fork
+
+    :Job 3 — **push** ✓\n(images published to GHCR);
+
+    |Self-Hosted Runner (VM / Minikube)|
+    :Checkout repository;
+    :Login to GHCR (GITHUB_TOKEN);
+
+    fork
+      :docker pull\nbombasticifccluster-api:latest;
+    fork again
+      :docker pull\nbombasticifccluster-frontend:latest;
+    end fork
+
+    fork
+      :minikube image load api:latest;
+    fork again
+      :minikube image load frontend:latest;
+    end fork
+
+    :kubectl create namespace\nbombasticifccluster (idempotent);
+
+    :kubectl create secret generic\nbombasticifccluster-secrets\n(DB_PASSWORD, JWT_SECRET);
+
+    :kubectl create secret docker-registry\nghcr-login-secret (GHCR_PAT);
+
+    :kubectl apply -f kubernetes/\n  namespace.yaml\n  configmap.yaml\n  persistent-volumes.yaml\n  postgres-deployment.yaml\n  api-deployment.yaml\n  frontend-deployment.yaml\n  ingress.yaml;
+
+    fork
+      :kubectl rollout restart\ndeployment/api-deployment;
+    fork again
+      :kubectl rollout restart\ndeployment/frontend-deployment;
+    end fork
+
+    fork
+      :kubectl rollout status\napi-deployment --timeout=5m;
+    fork again
+      :kubectl rollout status\nfrontend-deployment --timeout=5m;
+    end fork
+
+    :kubectl get pods -n bombasticifccluster;
+
+    :Job 4 — **deploy** ✓\n(rolling update on Minikube);
+
+    |Developer|
+    :App live at\nhttp://localhost (nginx)\nhttp://localhost/api (API);
+    stop
+
+  else (PR / not main)
+    |Developer|
+    :Images built and cached\n(not pushed — PR feedback only);
+    stop
+  endif
+
+else (no — quality failed)
+  |Developer|
+  :Pipeline blocked\nFix lint / test errors;
+  stop
+endif
+
+@enduml

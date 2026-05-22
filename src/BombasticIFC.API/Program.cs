@@ -21,12 +21,7 @@ builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssembly(typeof(BombasticIFC.Application.UseCases.Models.UploadModelCommand).Assembly));
 
 // Add Database
-// Railway injects DATABASE_URL (postgres://user:pass@host:port/db).
-// Npgsql accepts this URL format directly, so prefer it over the
-// key=value connection string — avoids special-character escaping issues.
-var connectionString =
-    Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(
@@ -148,8 +143,24 @@ var app = builder.Build();
 
 // ── HTTP pipeline ────────────────────────────────────────────────────────────
 // Register all middleware and routes BEFORE touching the database.
-// This guarantees /health is always reachable even when the DB is misconfigured,
-// so Railway's healthcheck can pass and the real error shows up in the logs.
+// This guarantees /health is always reachable even when the DB is misconfigured.
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var errorFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (errorFeature?.Error is not null)
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogError(errorFeature.Error, "Unhandled exception on {Method} {Path}",
+                context.Request.Method, context.Request.Path);
+        }
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { message = "An unexpected server error occurred." });
+    });
+});
 
 // Always expose Swagger (dev + prod — accessible via NodePort / ingress)
 app.UseSwagger();
@@ -170,7 +181,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
 // Single migration + seed block with full error containment.
 // If the DB is unreachable (wrong connection string, Postgres not ready) the
 // exception is logged and swallowed so app.Run() is always reached.
-// Missing ConnectionStrings__DefaultConnection is the most common Railway cause.
+// Missing ConnectionStrings__DefaultConnection is the most common startup failure cause.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -189,9 +200,10 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         logger.LogCritical(ex,
-            "Database startup failed. The app will run in degraded mode — " +
-            "all DB-backed endpoints will return errors until the connection is fixed. " +
-            "Check ConnectionStrings__DefaultConnection (Railway: use PGHOST/PGPORT/PGUSER/PGPASSWORD variables).");
+            "Database startup failed — migrations or seeding threw an exception. " +
+            "All DB-backed endpoints will return 500 until this is resolved. " +
+            "Check ConnectionStrings__DefaultConnection and that all migrations have been applied. " +
+            "Inner exception: {Message}", ex.Message);
     }
 }
 

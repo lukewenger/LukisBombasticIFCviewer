@@ -49,7 +49,7 @@ services:
       - JwtSettings__Secret=${JWT_SECRET:?JWT_SECRET must be set in .env}
       - JwtSettings__Issuer=BombasticIFC
       - JwtSettings__Audience=BombasticIFC-Client
-      - JwtSettings__ExpirationMinutes=60
+      - JwtSettings__ExpirationInMinutes=60
       - StoragePath=/data/storage
     ports:
       - "5000:8080"
