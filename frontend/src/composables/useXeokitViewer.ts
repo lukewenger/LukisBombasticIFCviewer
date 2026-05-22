@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import api from '../api/client'
 
 export interface LoadedModelEntry {
   id: string
@@ -42,18 +43,10 @@ export function useXeokitViewer() {
 
   async function isModelOutputReachable(url: string): Promise<boolean> {
     try {
-      const headResponse = await fetch(url, { method: 'HEAD' })
-      if (headResponse.ok) return true
-
-      if (headResponse.status === 405) {
-        const rangeResponse = await fetch(url, {
-          method: 'GET',
-          headers: { Range: 'bytes=0-0' },
-        })
-        return rangeResponse.ok || rangeResponse.status === 206
-      }
-
-      return false
+      // Use the authenticated Axios instance so the JWT token is attached.
+      // A successful 2xx response means the file is ready; any error means it is not.
+      await api.get(url, { responseType: 'arraybuffer', headers: { Range: 'bytes=0-0' } })
+      return true
     } catch {
       return false
     }

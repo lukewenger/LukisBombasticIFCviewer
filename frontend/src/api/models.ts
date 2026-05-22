@@ -1,4 +1,5 @@
 import api from './client'
+import type { AxiosProgressEvent } from 'axios'
 import type { IfcModelDto } from '../types'
 
 export const modelsApi = {
@@ -18,7 +19,7 @@ export const modelsApi = {
 
     const response = await api.post<IfcModelDto>('/models/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (event) => {
+      onUploadProgress: (event: AxiosProgressEvent) => {
         if (event.total && onProgress) {
           onProgress(Math.round((event.loaded * 100) / event.total))
         }
@@ -29,5 +30,15 @@ export const modelsApi = {
 
   async deleteModel(id: string): Promise<void> {
     await api.delete(`/models/${id}`)
+  },
+
+  async getModelOutput(id: string): Promise<Blob> {
+    const response = await api.get<Blob>(`/models/${id}/output`, { responseType: 'blob' })
+    return response.data
+  },
+
+  async getModelOriginal(id: string): Promise<Blob> {
+    const response = await api.get<Blob>(`/models/${id}/original`, { responseType: 'blob' })
+    return response.data
   },
 }
