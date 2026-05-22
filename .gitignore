@@ -1,7 +1,7 @@
 output/
 .claude/settings.local.json
 .claude/
-
+actions-runner/
 # .NET build artifacts
 # Use **/obj/ and **/bin/ (double-star) to match at any depth,
 # e.g. src/BombasticIFC.API/obj/ or test/BombasticIFC.Tests/bin/
