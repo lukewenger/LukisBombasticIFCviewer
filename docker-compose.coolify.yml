@@ -91,7 +91,7 @@ services:
       # Nginx proxies /api/ → http://api:8080 (Docker Compose internal DNS).
       API_UPSTREAM: http://api:8080
     ports:
-      - "80"
+      - "8090:80"
 
 volumes:
   postgres-data:
