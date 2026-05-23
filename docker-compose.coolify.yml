@@ -69,10 +69,13 @@ services:
     expose:
       - "8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      # wget and curl are not available in the mcr.microsoft.com/dotnet/aspnet:8.0 image.
+      # Use bash's built-in /dev/tcp to open a TCP connection to port 8080 instead.
+      # bash IS available in the Debian-based aspnet image.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
       start_period: 60s
 
   # ── Frontend (Vue 3 / nginx) ──────────────────────────────────────────────
