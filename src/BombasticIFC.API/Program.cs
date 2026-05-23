@@ -85,9 +85,16 @@ builder.Services.AddScoped<IIfcConversionService>(provider =>
 builder.Services.AddHostedService<ConversionWorker>();
 
 // Add JWT Authentication
+// JwtSettings__Secret is the canonical env var (maps to JwtSettings:Secret in .NET config).
+// JWT_SECRET is a flat alias that Coolify injects directly when ${JWT_SECRET} compose
+// substitution is unreliable (e.g. Coolify runtime injection vs .env-file substitution).
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = jwtSettings["Secret"] 
-    ?? throw new InvalidOperationException("JWT Secret is not configured");
+var rawSecret = jwtSettings["Secret"]         // JwtSettings__Secret env var / appsettings
+    ?? builder.Configuration["JWT_SECRET"];   // Coolify flat env var fallback
+if (string.IsNullOrWhiteSpace(rawSecret))
+    throw new InvalidOperationException(
+        "JWT Secret is not configured. Set JwtSettings__Secret or JWT_SECRET environment variable.");
+var secretKey = rawSecret;
 
 builder.Services.AddAuthentication(options =>
 {

@@ -1,20 +1,11 @@
 # docker-compose.coolify.yml — Coolify deployment stack
 #
-# How to use:
-#   1. In Coolify UI → New Resource → Docker Compose
-#   2. Point to this repo, select this file
-#   3. Set these environment variables in Coolify:
-#        DB_PASSWORD   — strong random password for PostgreSQL
-#        JWT_SECRET    — strong random string (≥ 32 chars)
-#   4. Deploy
+# Required environment variables (set in Coolify UI → Environment Variables):
+#   DB_PASSWORD   — strong random password for PostgreSQL
+#   JWT_SECRET    — strong random string (≥ 32 chars)
 #
-# Service topology:
-#   postgres  ← api (depends_on: healthy)
-#   api       ← frontend nginx proxy (/api/ → http://api:8080)
-#   frontend  → public-facing via Traefik (port 80)
-#
-# The API is intentionally NOT exposed to Traefik/the internet.
-# All browser traffic hits the frontend; /api/ is proxied server-side.
+# Service start order:
+#   postgres (healthy) → migrate (completed) → api (healthy) → frontend
 
 services:
 
@@ -35,6 +26,23 @@ services:
       retries: 5
       start_period: 15s
 
+  # ── EF Core migration (one-shot) ─────────────────────────────────────────
+  # Mirrors the K8s initContainer pattern: runs all pending EF Core migrations
+  # and exits 0 on success / 1 on failure. The api service waits for this to
+  # complete successfully before starting (service_completed_successfully).
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["dotnet", "BombasticIFC.API.dll", "--migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=${DB_PASSWORD}"
+
   # ── API (.NET 8 / ASP.NET Core) ──────────────────────────────────────────
   api:
     build:
@@ -44,18 +52,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      # EF Core + Npgsql connection string — "postgres" resolves to the
-      # postgres service on the shared Docker Compose network.
-      ConnectionStrings__DefaultConnection: >-
-        Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=${DB_PASSWORD}
-      JwtSettings__Secret: ${JWT_SECRET}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=${DB_PASSWORD}"
+      # JWT_SECRET is injected by Coolify as a runtime env var.
+      # Program.cs reads JwtSettings__Secret first, then falls back to JWT_SECRET.
+      # JwtSettings__Secret is intentionally omitted here — ${JWT_SECRET} compose
+      # substitution is unreliable in Coolify's env-file mechanism; the runtime
+      # injection of JWT_SECRET (handled by Coolify automatically) takes effect instead.
       StoragePath: /data/storage
     volumes:
       - ifc-storage:/data/storage
-    # Expose only on the internal Docker network; Traefik does NOT route to
-    # this service — the frontend nginx proxy handles all /api/ calls.
+    # Not exposed to Traefik — the frontend nginx proxy handles all /api/ traffic.
     expose:
       - "8080"
     healthcheck:
@@ -63,7 +73,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 45s
+      start_period: 60s
 
   # ── Frontend (Vue 3 / nginx) ──────────────────────────────────────────────
   frontend:
@@ -75,8 +85,7 @@ services:
       api:
         condition: service_healthy
     environment:
-      # Tells nginx where to proxy /api/ requests.
-      # "api" resolves to the API service on the shared Docker Compose network.
+      # Nginx proxies /api/ → http://api:8080 (Docker Compose internal DNS).
       API_UPSTREAM: http://api:8080
     ports:
       - "80"
