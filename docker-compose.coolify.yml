@@ -1,0 +1,86 @@
+# docker-compose.coolify.yml — Coolify deployment stack
+#
+# How to use:
+#   1. In Coolify UI → New Resource → Docker Compose
+#   2. Point to this repo, select this file
+#   3. Set these environment variables in Coolify:
+#        DB_PASSWORD   — strong random password for PostgreSQL
+#        JWT_SECRET    — strong random string (≥ 32 chars)
+#   4. Deploy
+#
+# Service topology:
+#   postgres  ← api (depends_on: healthy)
+#   api       ← frontend nginx proxy (/api/ → http://api:8080)
+#   frontend  → public-facing via Traefik (port 80)
+#
+# The API is intentionally NOT exposed to Traefik/the internet.
+# All browser traffic hits the frontend; /api/ is proxied server-side.
+
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: bombasticifcdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bombasticifcdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── API (.NET 8 / ASP.NET Core) ──────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # EF Core + Npgsql connection string — "postgres" resolves to the
+      # postgres service on the shared Docker Compose network.
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=bombasticifcdb;Username=postgres;Password=${DB_PASSWORD}
+      JwtSettings__Secret: ${JWT_SECRET}
+      StoragePath: /data/storage
+    volumes:
+      - ifc-storage:/data/storage
+    # Expose only on the internal Docker network; Traefik does NOT route to
+    # this service — the frontend nginx proxy handles all /api/ calls.
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  # ── Frontend (Vue 3 / nginx) ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Tells nginx where to proxy /api/ requests.
+      # "api" resolves to the API service on the shared Docker Compose network.
+      API_UPSTREAM: http://api:8080
+    ports:
+      - "80"
+
+volumes:
+  postgres-data:
+  ifc-storage:
