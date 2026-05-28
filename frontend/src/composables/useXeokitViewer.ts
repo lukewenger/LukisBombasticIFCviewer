@@ -165,7 +165,7 @@ export function useXeokitViewer() {
     if (src) {
       try {
         const token = localStorage.getItem('accessToken')
-        const fetchUrl = `/api${src}`
+        const fetchUrl = src.startsWith('/api/') ? src : `/api${src}`
         const fetchResponse = await fetch(fetchUrl, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })

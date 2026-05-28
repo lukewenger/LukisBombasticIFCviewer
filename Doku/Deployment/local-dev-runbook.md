@@ -73,7 +73,79 @@ will contain the old code.
 
 **Fix:** `dev-deploy.sh` always passes `--no-cache` to `docker build`.
 
-### 3. `XktOutputUrl` must NOT include the `/api/` prefix
+### 3. `kubectl set image` strips env vars — causes frontend CrashLoopBackOff
+
+**Symptom:** After updating the frontend image with `kubectl set image`, the new pod enters
+`CrashLoopBackOff` immediately. The pod logs show:
+
+```
+[emerg] host not found in upstream "api" in /etc/nginx/conf.d/default.conf
+```
+
+**Cause:** `kubectl set image` creates a new ReplicaSet that inherits the current live deployment
+spec, not the YAML on disk. If the live spec was ever patched without a full `apply`, it may be
+missing the `API_UPSTREAM` env var. Without it, `docker-entrypoint.sh` leaves the nginx config
+with the Dockerfile default `http://api:8080`, and `api` is not a resolvable hostname in
+Kubernetes.
+
+**Fix:** Always apply the full manifest instead of patching the image directly:
+
+```bash
+kubectl apply -f kubernetes/frontend-deployment.yaml
+kubectl rollout status deployment/frontend-deployment -n bombasticifccluster
+```
+
+To verify `API_UPSTREAM` is present in the running pods:
+
+```bash
+kubectl exec -n bombasticifccluster deploy/frontend-deployment -- env | grep API_UPSTREAM
+# Expected: API_UPSTREAM=http://api-service.bombasticifccluster.svc.cluster.local
+```
+
+`dev-deploy.sh frontend` uses `kubectl set image` followed by `kubectl rollout restart`, which is
+safe because it preserves the existing deployment spec env vars. The spec must already be correct
+(via a prior `kubectl apply`) for this to work.
+
+---
+
+### 4. Converted model not loaded — `GET /api/api/models/{id}/output 404`
+
+**Symptom:** After setting up fresh pods (or after a partial redeploy), converted IFC models are
+not shown in the 3D viewer. The browser console shows a 404 with a doubled `/api/api/` path:
+
+```
+GET http://<host>/api/api/models/{id}/output  404 (Not Found)
+```
+
+Only the static demo model (Duplex.xkt) loads.
+
+**Cause:** Image version mismatch between the API and frontend pods.
+
+The backend DTO (`XktOutputUrl`) went through two versions:
+- **Old API image:** returns `"/api/models/{id}/output"` (includes `/api/` prefix)
+- **New API image:** returns `"/models/{id}/output"` (no prefix — correct)
+
+The frontend composable (`useXeokitViewer.ts`) prepends `/api` before fetching. If the old API
+image is running while the new frontend is deployed, the prefix is doubled.
+
+**Fix (permanent — already in place):** `useXeokitViewer.ts` is now defensive:
+
+```typescript
+// Handles both old (/api/models/…) and new (/models/…) xktOutputUrl formats
+const fetchUrl = src.startsWith('/api/') ? src : `/api${src}`
+```
+
+If you still see this error after a fresh pod setup, the frontend image is stale. Rebuild it:
+
+```bash
+./dev-deploy.sh frontend   # ~30 s
+```
+
+Hard-refresh the browser (`Ctrl+Shift+R`) after the rollout to clear the cached JS bundle.
+
+---
+
+### 5. `XktOutputUrl` must NOT include the `/api/` prefix
 
 The backend DTOs (`GetModelsQuery`, `GetModelByIdQuery`) return `XktOutputUrl`
 as a path relative to the Axios `baseURL`. The Axios client is configured with
@@ -97,7 +169,9 @@ return 401 and the model won't load.
 
 ```typescript
 const token = localStorage.getItem('accessToken')
-const res = await fetch(`/api${src}`, {
+// src may already include /api/ (old API image) or not (new API image) — handle both
+const fetchUrl = src.startsWith('/api/') ? src : `/api${src}`
+const res = await fetch(fetchUrl, {
   headers: token ? { Authorization: `Bearer ${token}` } : {},
 })
 if (!res.ok) throw new Error(`HTTP ${res.status}`)
