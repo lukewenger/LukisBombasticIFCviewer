@@ -21,13 +21,6 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-# Create non-root user and transfer ownership of nginx runtime directories.
-# Alpine uses busybox addgroup/adduser (not groupadd/useradd).
-RUN addgroup -S appuser && adduser -S appuser -G appuser \
-    && chown -R appuser:appuser /usr/share/nginx/html /var/cache/nginx /var/log/nginx /etc/nginx/conf.d \
-    && touch /var/run/nginx.pid && chown appuser:appuser /var/run/nginx.pid
-USER appuser
-
 # Default upstream — works for Docker Compose / Coolify where the API
 # service is named "api" and listens on 8080.
 # Override at runtime for other environments (e.g. Kubernetes):
