@@ -137,6 +137,8 @@ kubectl create secret generic bombasticifccluster-secrets \
   --dry-run=client -o yaml > kubernetes/secrets.yaml
 ```
 
+
+
 **3. Apply all manifests:**
 
 ```bash
