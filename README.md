@@ -22,6 +22,40 @@ A single-page application for managing and visualising IFC (Industry Foundation 
 
 ---
 
+## Architecture
+
+```mermaid
+graph TD
+    Dev[Developer] -->|git push| GH[GitHub]
+
+    GH -->|triggers on push to main| GHA[GitHub Actions CI/CD]
+    GHA --> Q[Job: quality\ndotnet test + vue-tsc]
+    Q -->|pass| B[Job: build\nDocker images]
+    B -->|push to main| P[Job: push\nGHCR]
+    P -->|needs push| D[Job: deploy\nself-hosted runner]
+
+    P -->|pushes images| GHCR[(GHCR\nghcr.io)]
+    GHCR -->|docker pull| D
+
+    D -->|minikube image load + kubectl apply| MK[Minikube Cluster]
+
+    subgraph MK [Minikube Cluster]
+        ING[Ingress nginx] --> FE[Frontend Pod\nnginx + Vue SPA]
+        ING --> API[API Pod\n.NET 8]
+        API --> PG[PostgreSQL Pod\npostgres:16-alpine]
+    end
+
+    GH -->|coolify branch push| CL[Coolify]
+    CL -->|docker compose| DC[Docker Compose stack]
+
+    subgraph DC [Docker Compose stack]
+        FEC[Frontend container\nnginx :8090] --> APIC[API container\n.NET 8]
+        APIC --> PGC[PostgreSQL container\npostgres:16-alpine]
+    end
+```
+
+---
+
 ## Repository layout
 
 ```plaintext
@@ -64,7 +98,15 @@ Doku/                             Extended documentation (architecture, cluster,
 
 ## Getting started (local dev)
 
-### Prerequisites
+### Quickstart (Docker Compose / Coolify)
+
+```bash
+cp .env.example .env   # Edit DB_PASSWORD and JWT_SECRET
+docker compose -f docker-compose.coolify.yml up -d
+# App available at http://localhost:8090
+```
+
+### Prerequisites (Minikube path)
 
 - [Minikube](https://minikube.sigs.k8s.io/docs/start/) with `kubectl`
 - Node.js 20 (required for xeokit-convert native addon ABI compatibility)
@@ -310,3 +352,41 @@ Tokens are JWT Bearer (HS256). Auth endpoints are rate-limited to 10 requests pe
 - **Error conventions** — 400 for validation failures, 401 for missing/invalid authentication, 403 for authorisation failures, 404 for missing resources, 409 for conflicts.
 - **Health endpoint** — `GET /health` returns `{ "status": "healthy", "timestamp": "..." }` and is used by all three Kubernetes probes (startup, liveness, readiness) on port 8080.
 - **Port conventions** — API container port 8080 (Kubernetes) / mapped to 5000 on the host in Docker Compose; frontend container port 80.
+
+---
+
+## Entscheidungen
+
+### Plattform: Coolify + Kubernetes
+
+Das Projekt setzt zwei Deployment-Ziele ein: Kubernetes (Minikube auf einer lokalen Ubuntu-VM) und Coolify (selbst gehostete PaaS-Plattform, Branch `coolify`). Die Prüfungsanforderung (HFI_DEP) verlangt explizit mehrere Umgebungen, wodurch eine einzelne Zielplattform nicht ausreichen würde. Coolify wurde als zweite Zielplattform gewählt, weil es Docker-Compose-Stacks mit wenigen Klicks deployt und keine Kubernetes-Kenntnisse voraussetzt — ideal für eine erste, schnell aufzusetzende Umgebung. Kubernetes wurde beibehalten, weil es echte Produktionsmerkmale bietet: Namespaces, Rolling Updates mit `maxUnavailable: 0`, Health-Probes, Ressourcenlimits und deklarative Manifests, die direkt auf K3s oder einen Managed Cluster portierbar sind. Alternativen wie ein einzelner Docker-Compose-Stack ohne Orchestrierung oder ein Cloud-PaaS (Render, Railway) wurden verworfen, weil sie entweder keine Kubernetes-Erfahrung vermitteln oder laufende Kosten erzeugen.
+
+### Datenbankwahl: PostgreSQL
+
+PostgreSQL 16 Alpine wurde als einzige Datenbankwahl eingesetzt — sowohl in Docker Compose als auch in Kubernetes. SQLite wäre für die Entwicklungsumgebung einfacher gewesen, scheidet jedoch aus zwei Gründen aus: Es ist nicht multi-replica-fähig (die API läuft mit `replicas: 2`) und unterstützt keine JSON-Spalten als EF-Core-Owned-Entity, die das `Metadata`-Feld von `IfcModel` nutzt. Der Npgsql-EF-Core-Provider ermöglicht direkt JSON-Persistenz ohne ORM-Umgehung. Durch die Verwendung von PostgreSQL in allen Umgebungen entfällt ausserdem die Dev/Prod-Parität als Fehlerquelle: Was lokal funktioniert, verhält sich auf dem Cluster identisch.
+
+### CI/CD: GitHub Actions mit Self-Hosted Runner
+
+Die Pipeline besteht aus vier Jobs: `quality`, `build`, `push` (alle auf `ubuntu-latest`) und `deploy` (auf `self-hosted`). GitHub Actions wurde gegenüber GitLab CI oder Jenkins gewählt, weil es direkt im Repository integriert ist und kein separater Server benötigt wird. GHCR (GitHub Container Registry) ersetzt Docker Hub, weil der `GITHUB_TOKEN` für Login und Push ausreicht — kein separater Account, keine Rate-Limit-Probleme. Der self-hosted Runner ist notwendig, weil die VM keine öffentliche IP besitzt: Cloud-Runner könnten sie nicht per SSH erreichen. Der self-hosted Runner initiiert eine ausgehende Verbindung zu GitHub und empfängt den Deploy-Job lokal — kein Port-Forwarding, kein VPN. Das Fail-fast-Prinzip (scheitert `quality`, laufen `build` und `deploy` nicht) spart Build-Minuten und gibt sofort klares Feedback.
+
+### Container-Architektur: Multi-Stage Builds
+
+Beide Dockerfiles verwenden Multi-Stage-Builds, um Build-Laufzeit und Produktions-Image strikt zu trennen. Das API-Image durchläuft die Stufen `sdk` (dotnet publish), `node` (xeokit-convert Native-Addon-Kompilierung) und `aspnet` (Laufzeit). Die Node-Stufe muss exakt Node.js 20 (V8 ABI 115) verwenden, weil xeokit-convert ein natives Addon (`btoa.node`) enthält, das gegen die V8-Version des Laufzeit-Node kompiliert wird — ein abweichendes Node führt zu einem `Invalid ELF header`-Fehler beim Import. Ohne Multi-Stage würde das finale Image das gesamte .NET SDK (~800 MB) und die Node-Toolchain einschliessen; mit Multi-Stage beträgt die API-Imagegrösse rund 280 MB. Das Frontend-Image nutzt `node:20-alpine` nur für den Vite-Build und liefert das Ergebnis an `nginx:alpine` aus, sodass kein Node.js im Laufzeit-Container verbleibt.
+
+---
+
+## Learnings
+
+- **Node.js ABI-Version pinnen ist nicht optional.** Das native Addon `btoa.node` von xeokit-convert ist gegen ABI 115 (Node 20) kompiliert. Jede Abweichung — Node 18 (ABI 108) oder Node 22 (ABI 127) — führt beim Import zu einem nicht-sprechenden `Invalid ELF header`-Fehler. Beim nächsten Projekt würde man entweder eine reine npm-Bibliothek ohne native Addons wählen oder das Addon von Anfang an in einem eigenen, fest gepinnten Container isolieren.
+
+- **InitContainer-Migrationsmuster von Anfang an einsetzen.** Migrationen beim API-Start via `db.Database.Migrate()` auszuführen hat im Projekt zu einer ganzen Klasse von HTTP-500-Fehlern geführt, als ein neuerer Code mit einer älteren Image-Version zusammentraf. Das InitContainer-Muster — ein separater `migrator`-Container, der vor dem API-Pod exitiert — macht Migrationsfehler sofort sichtbar und verhindert, dass ein inkonsistentes Schema den laufenden Pod beschädigt. Beim nächsten Projekt wird dieses Muster als erstes Deployment-Detail eingerichtet.
+
+- **Self-Hosted-Runner-Komplexität nicht unterschätzen.** Die Einrichtung des self-hosted Runners (Registrierung, Systemd-Service, Minikube-Umgebungsvariablen, GHCR-Login im Job) hat mehr Zeit gekostet als erwartet. Im Nachhinein hätte man früher evaluiert, ob Coolify als einzige Deployment-Zielplattform für den Prüfungsumfang ausreicht — Coolify deployt via Webhook ohne dedizierten Runner.
+
+- **Non-Root-Container als Standard setzen.** Die Kubernetes-Manifests laufen aktuell ohne `runAsNonRoot: true` im Security Context. Das wurde während der Entwicklung aus Zeitgründen zurückgestellt. Beim nächsten Projekt wird `runAsNonRoot` von der ersten Manifest-Version an konfiguriert, weil eine nachträgliche Anpassung Dateipfad-Berechtigungen in Volumes und Healthcheck-Skripte beeinflusst.
+
+- **`.env.example` ist ein Team-Vertrag, kein Nice-to-Have.** Fehlende Umgebungsvariablen-Dokumentation hat beim Onboarding zu Verwirrung geführt: Welche Variablen sind erforderlich? Welche haben sinnvolle Defaults? Eine vollständige `.env.example` mit Kommentaren zu jedem Wert hätte diese Reibung von Anfang an eliminiert.
+
+- **Zwei Deployment-Ziele verdoppeln die Komplexität — aber der Lernwert ist hoch.** Die Coolify-Integration erforderte Anpassungen an `nginx.conf` (von hartcodierten K8s-DNS-Namen zu `${API_UPSTREAM}` via `envsubst`), an `Program.cs` (JWT-Secret-Fallback) und an der Compose-Datei (Migrate-Service als InitContainer-Ersatz). Diese Komplexität war lehrreich: Man versteht Abstraktionsebenen besser, wenn man dieselbe Anwendung auf zwei fundamental verschiedenen Plattformen zum Laufen bringt.
+
+- **Healthcheck-Abhängigkeiten in Docker Compose sind kritisch.** `depends_on: condition: service_started` reicht nicht aus — der API-Container startete und crashte, weil PostgreSQL noch keine Verbindungen akzeptierte. `condition: service_healthy` mit `pg_isready`-Healthcheck löst dieses Startverhalten zuverlässig. Dieses Detail ist bei Kubernetes durch Readiness-Proben automatisch gelöst, in Docker Compose muss es explizit konfiguriert werden.

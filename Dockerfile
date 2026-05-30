@@ -57,8 +57,9 @@ RUN npm install -g @xeokit/xeokit-convert@1.3.1 && \
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
-# Create storage directory
-RUN mkdir -p /data/storage /app/seed-data
+# Create storage directory and non-root user
+RUN mkdir -p /data/storage /app/seed-data \
+    && groupadd -r appuser && useradd -r -g appuser appuser
 
 COPY --from=publish /app/publish .
 COPY src/BombasticIFC.API/data/storage/samples/Duplex.xkt /app/seed-data/Duplex.xkt
@@ -70,15 +71,23 @@ EXPOSE 8080
 # builder stage above.  Debian bookworm's default apt repo ships Node 18, which has a
 # different V8 ABI (108 vs 115) and cannot load the .node binaries compiled by Node 20.
 # curl is needed only to fetch the NodeSource setup script and is removed afterwards.
+# curl is retained (not purged) so the HEALTHCHECK directive can use it.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
-    apt-get purge -y curl && apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the pre-built xeokit-convert package and its CLI entry point
 COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=node-builder /usr/local/bin/xeokit-convert /usr/local/bin/xeokit-convert
+
+# Fix ownership of all copied files, then drop to non-root user
+RUN chown -R appuser:appuser /app /data
+USER appuser
+
+# Health check — probes the same endpoint used by K8s liveness/readiness probes
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Bind Kestrel to 8080 — matches the containerPort in the Kubernetes manifests.
 ENTRYPOINT ["dotnet", "BombasticIFC.API.dll", "--urls", "http://+:8080"]
