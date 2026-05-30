@@ -123,6 +123,8 @@ minikube start
 minikube addons enable ingress
 ```
 
+
+
 **2. Create the secrets manifest on your local machine (never commit this file):**
 
 ```bash
