@@ -1,6 +1,7 @@
 # BombasticIFC
 
 
+
 A single-page application for managing and visualising IFC (Industry Foundation Classes) building models. Users authenticate, upload `.ifc` files, track conversion progress, and inspect 3D models interactively in the browser using the xeokit SDK.
 
 ---
